@@ -71,27 +71,27 @@ Recommended model: `DeepSeek-Qwen3-8B-GGUF` (fast, good quality for this task).
 
 ## Getting Started
 
-**0. start.bat**
-
-Easiest way is to use the start.bat - It will create the venv, install dependencies and start the flask server. Alternativly you can 
-follow the next steps and install it manually as well.
-
-start.bat will at the second run only launch the Mandarin Trainer
-
 **1. Clone the repository**
 ```bash
 git clone https://github.com/your-username/mandarin-trainer.git
 cd mandarin-trainer
 ```
 
-**2. Create a virtual environment and install dependencies**
+**2. Run start.bat**
+
+Easiest way is to use the start.bat - It will create the venv, install dependencies and start the flask server. Alternativly you can 
+follow the next steps and install it manually as well.
+
+start.bat will at the second run only launch the Mandarin Trainer
+
+**3. Create a virtual environment and install dependencies**
 ```bash
 python -m venv .venv
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**3. Run the app**
+**4. Run the app**
 ```bash
 python app.py
 ```
