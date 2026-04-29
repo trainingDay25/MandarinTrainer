@@ -17,6 +17,16 @@ A local web app for studying Mandarin Chinese vocabulary and grammar. Built with
 - Study by HSK level, a custom word list, or a mix of due and new cards
 - Session summary with per-grade counts and a progress bar
 
+<div align="center">
+  <img src="screenshots/start.png" alt="Flashcard study session" width="700"/>
+  <p><em>Flashcard session with SRS intervals</em></p>
+</div>
+
+<div align="center">
+  <img src="screenshots/flashcard-example-turned.png" alt="Flashcard Turned" width="700"/>
+  <p><em>Flashcard Example before grading</em></p>
+</div>
+
 ### Word List
 - Browse all vocabulary filtered by curriculum and HSK level
 - Word detail modal with hanzi, pinyin, English meaning, and example sentence
