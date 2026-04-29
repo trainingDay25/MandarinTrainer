@@ -73,7 +73,7 @@ Recommended model: `DeepSeek-Qwen3-8B-GGUF` (fast, good quality for this task).
 
 **1. Clone the repository**
 ```bash
-git clone https://github.com/your-username/mandarin-trainer.git
+git clone https://github.com/trainingDay25/MandarinTrainer.git
 cd mandarin-trainer
 ```
 
