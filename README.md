@@ -79,7 +79,7 @@ cd mandarin-trainer
 
 **2. Run start.bat**
 
-Easiest way is to use the start.bat - It will create the venv, install dependencies and start the flask server. Alternativly you can 
+Easiest way is to use the start.bat - It will create the venv, install dependencies and start the flask server. Alternatively you can 
 follow the next steps and install it manually as well.
 
 start.bat will at the second run only launch the Mandarin Trainer
