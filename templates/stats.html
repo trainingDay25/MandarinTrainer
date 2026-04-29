@@ -1,0 +1,170 @@
+{% extends 'base.html' %}
+{% block title %}Stats – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<h4 class="mb-4">Stats &amp; Progress</h4>
+
+{# ── 1. Top line numbers ─────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-sm-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div style="font-size:2rem">🔥</div>
+      <div style="font-size:2rem;font-weight:700;line-height:1.1">{{ streak }}</div>
+      <div class="text-muted small mt-1">day streak</div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div style="font-size:2rem">📋</div>
+      <div style="font-size:2rem;font-weight:700;line-height:1.1">{{ "{:,}".format(total_reviews) }}</div>
+      <div class="text-muted small mt-1">total reviews</div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div style="font-size:2rem">⭐</div>
+      <div style="font-size:2rem;font-weight:700;line-height:1.1">{{ "{:,}".format(known_total) }}</div>
+      <div class="text-muted small mt-1">words known <span class="text-muted" style="font-size:.75rem">(≥ 1-day interval)</span></div>
+    </div>
+  </div>
+</div>
+
+{# ── 2. Retention rate ───────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4 p-4">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">Retention rate</h6>
+    <span style="font-size:1.5rem;font-weight:700;color:{% if retention_pct >= 80 %}#198754{% elif retention_pct >= 60 %}#fd7e14{% else %}#dc3545{% endif %}">
+      {{ retention_pct }}%
+    </span>
+  </div>
+  <div class="progress mb-2" style="height:10px">
+    {% set wrong_pct = (total_wrong / total_reviews * 100) | round | int if total_reviews else 0 %}
+    <div class="progress-bar bg-success" style="width:{{ (total_easy   / total_reviews * 100) | round | int if total_reviews else 0 }}%"></div>
+    <div class="progress-bar bg-warning" style="width:{{ (total_medium / total_reviews * 100) | round | int if total_reviews else 0 }}%"></div>
+    <div class="progress-bar bg-danger"  style="width:{{ wrong_pct }}%"></div>
+  </div>
+  <div class="d-flex gap-4 small text-muted">
+    <span><span class="badge bg-success me-1">&nbsp;</span>Easy {{ "{:,}".format(total_easy) }}</span>
+    <span><span class="badge bg-warning  me-1">&nbsp;</span>Medium {{ "{:,}".format(total_medium) }}</span>
+    <span><span class="badge bg-danger   me-1">&nbsp;</span>Wrong {{ "{:,}".format(total_wrong) }}</span>
+  </div>
+</div>
+
+{# ── 3. Progress by level ────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4 p-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 class="mb-0">Progress by level</h6>
+    <div class="d-flex gap-3 small text-muted">
+      <span><span style="display:inline-block;width:10px;height:10px;background:#198754;border-radius:2px" class="me-1"></span>Easy</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#fd7e14;border-radius:2px" class="me-1"></span>Medium</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#dc3545;border-radius:2px" class="me-1"></span>Wrong</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#dee2e6;border-radius:2px" class="me-1"></span>New</span>
+    </div>
+  </div>
+
+  {% set curr_labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'} %}
+  {% for curr in ['classic', 'hsk3'] %}
+  {% if level_stats[curr] %}
+  <div class="mb-3">
+    <div class="fw-semibold small text-muted mb-2">{{ curr_labels[curr] }}</div>
+    {% for lv in level_stats[curr] %}
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <div class="text-muted small" style="width:42px;flex-shrink:0">HSK {{ '7-9' if (curr == 'hsk3' and lv.level == 7) else lv.level }}</div>
+      <div class="progress flex-grow-1" style="height:16px"
+           title="HSK {{ '7-9' if (curr == 'hsk3' and lv.level == 7) else lv.level }} — Easy {{ lv.easy }} / Medium {{ lv.medium }} / Wrong {{ lv.wrong }} / New {{ lv.new }} — {{ lv.known }} words at ≥1-day interval">
+        <div class="progress-bar bg-success" style="width:{{ lv.easy_pct }}%"></div>
+        <div class="progress-bar" style="width:{{ lv.medium_pct }}%;background:#fd7e14"></div>
+        <div class="progress-bar bg-danger"  style="width:{{ lv.wrong_pct }}%"></div>
+        <div class="progress-bar" style="width:{{ lv.new_pct }}%;background:#dee2e6"></div>
+      </div>
+      <div class="text-muted small" style="width:110px;flex-shrink:0;text-align:right">
+        {{ lv.seen }}/{{ lv.total }} seen
+        {% if lv.known_pct %}<span class="ms-1 text-success">· {{ lv.known_pct }}% ⭐</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+
+{# ── 4. Due forecast ─────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4 p-4">
+  <h6 class="mb-3">Due forecast</h6>
+  <div class="row g-3 text-center">
+    <div class="col-6 col-sm-3">
+      <div class="p-3 rounded" style="background:{% if due_overdue > 0 %}#fff3cd{% else %}#f8f9fa{% endif %}">
+        <div style="font-size:1.5rem;font-weight:700;color:{% if due_overdue > 0 %}#856404{% else %}#6c757d{% endif %}">
+          {{ due_overdue }}
+        </div>
+        <div class="small text-muted">overdue</div>
+      </div>
+    </div>
+    <div class="col-6 col-sm-3">
+      <div class="p-3 rounded" style="background:#f8f9fa">
+        <div style="font-size:1.5rem;font-weight:700">{{ due_today }}</div>
+        <div class="small text-muted">today</div>
+      </div>
+    </div>
+    <div class="col-6 col-sm-3">
+      <div class="p-3 rounded" style="background:#f8f9fa">
+        <div style="font-size:1.5rem;font-weight:700">{{ due_tomorrow }}</div>
+        <div class="small text-muted">tomorrow</div>
+      </div>
+    </div>
+    <div class="col-6 col-sm-3">
+      <div class="p-3 rounded" style="background:#f8f9fa">
+        <div style="font-size:1.5rem;font-weight:700">{{ due_rest_week }}</div>
+        <div class="small text-muted">days 3–7</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── 5. Activity calendar ────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4 p-4">
+  <h6 class="mb-3">Activity <span class="text-muted fw-normal small">(last 90 days)</span></h6>
+
+  {# Day-of-week labels #}
+  <div class="d-flex gap-1 mb-1 ms-1">
+    <div style="display:grid;grid-template-rows:repeat(7,14px);gap:3px;margin-right:4px">
+      {% for label in ['M','','W','','F','','S'] %}
+      <div style="font-size:9px;color:#9a9a9a;height:14px;line-height:14px">{{ label }}</div>
+      {% endfor %}
+    </div>
+
+    {# Calendar cells #}
+    <div style="display:grid;grid-template-rows:repeat(7,14px);grid-auto-columns:14px;grid-auto-flow:column;gap:3px;overflow-x:auto">
+      {% for day in cal_days %}
+      {% if day.in_range %}
+        {% if day.reviews == 0 %}
+          {% set bg = '#ebedf0' %}
+        {% elif day.reviews < 10 %}
+          {% set bg = '#9be9a8' %}
+        {% elif day.reviews < 30 %}
+          {% set bg = '#40c463' %}
+        {% elif day.reviews < 60 %}
+          {% set bg = '#30a14e' %}
+        {% else %}
+          {% set bg = '#216e39' %}
+        {% endif %}
+      {% else %}
+        {% set bg = 'transparent' %}
+      {% endif %}
+      <div style="width:14px;height:14px;border-radius:2px;background:{{ bg }}"
+           title="{{ day.date }}{% if day.reviews %}: {{ day.reviews }} reviews{% endif %}"></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# Colour legend #}
+  <div class="d-flex align-items-center gap-1 mt-2 small text-muted">
+    <span>Less</span>
+    {% for bg in ['#ebedf0','#9be9a8','#40c463','#30a14e','#216e39'] %}
+    <div style="width:14px;height:14px;border-radius:2px;background:{{ bg }}"></div>
+    {% endfor %}
+    <span>More</span>
+  </div>
+</div>
+
+{% endblock %}

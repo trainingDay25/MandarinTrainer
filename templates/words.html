@@ -1,0 +1,648 @@
+{% extends 'base.html' %}
+{% block title %}Words – Mandarin Trainer{% endblock %}
+
+{% block content %}
+{% if list_id %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <a href="/custom" class="text-muted small text-decoration-none">← All Lists</a>
+    <div id="name-display" class="d-flex align-items-center gap-2 mt-1">
+      <h3 class="mb-0" id="list-name-display">{{ list_name }}</h3>
+      <button class="btn btn-xs btn-outline-secondary"
+              onclick="startRename()" title="Rename list">✎</button>
+      <button class="btn btn-xs btn-outline-danger"
+              data-list-id="{{ list_id }}" data-list-name="{{ list_name|e }}" onclick="deleteListByBtn(this)" title="Delete list">🗑</button>
+    </div>
+    <div id="rename-form" class="d-none d-flex align-items-center gap-1 mt-1">
+      <input type="text" class="form-control form-control-sm" id="rename-input"
+             value="{{ list_name|e }}" style="max-width:220px"
+             onkeydown="if(event.key==='Enter') saveRename(); if(event.key==='Escape') cancelRename()">
+      <button class="btn btn-sm btn-primary"          onclick="saveRename()">Save</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="cancelRename()">✕</button>
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted">{{ words|length }} words</span>
+    <form method="post" action="/start" class="d-inline">
+      <input type="hidden" name="list_id" value="{{ list_id }}">
+      <input type="hidden" name="mode"    value="mix">
+      <input type="hidden" name="limit"   value="20">
+      <button type="submit" class="btn btn-sm btn-primary">Study →</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Word list</h3>
+  <div class="d-flex align-items-center gap-3">
+    <span class="text-muted">{{ words|length }} words</span>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-danger dropdown-toggle" type="button" data-bs-toggle="dropdown">
+        ↺ Reset
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        {% if active_hsk and active_hsk != 'all' %}
+        <li>
+          <form method="post" action="/reset/progress"
+                onsubmit="return confirm('Reset HSK {{ active_hsk }} progress in {{ active_curriculum }}?\nAll {{ active_hsk }} words will return to New.')">
+            <input type="hidden" name="curriculum" value="{{ active_curriculum }}">
+            <input type="hidden" name="hsk_level"  value="{{ active_hsk }}">
+            <input type="hidden" name="next" value="/words?curriculum={{ active_curriculum }}&hsk={{ active_hsk }}">
+            <button type="submit" class="dropdown-item text-danger">Reset HSK {{ active_hsk }} only</button>
+          </form>
+        </li>
+        <li><hr class="dropdown-divider"></li>
+        {% endif %}
+        <li>
+          {% if active_custom_list_name %}
+          <form method="post" action="/reset/progress"
+                onsubmit="return confirm('Reset all progress for \'{{ active_custom_list_name }}\'?\nEvery word in this list returns to New.')">
+            <input type="hidden" name="curriculum" value="{{ active_curriculum }}">
+            <input type="hidden" name="next" value="/words?curriculum=custom&list_id={{ active_custom_list_id }}">
+            <button type="submit" class="dropdown-item text-danger">Reset "{{ active_custom_list_name }}"</button>
+          </form>
+          {% else %}
+          <form method="post" action="/reset/progress"
+                onsubmit="return confirm('Reset ALL progress for {{ active_curriculum }}?\nEvery word returns to New.')">
+            <input type="hidden" name="curriculum" value="{{ active_curriculum }}">
+            <input type="hidden" name="next" value="/words?curriculum={{ active_curriculum }}&hsk={{ active_hsk }}">
+            <button type="submit" class="dropdown-item text-danger">Reset all ({{ active_curriculum }})</button>
+          </form>
+          {% endif %}
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+{# ── Curriculum toggle ── #}
+{% if curricula|length > 1 %}
+{% set labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'custom': 'Custom Lists'} %}
+<div class="d-flex gap-2 mb-3">
+  {% for c in curricula %}
+  <a href="{% if c == 'custom' %}/words?curriculum=custom{% else %}/words?curriculum={{ c }}&hsk=1{% endif %}"
+     class="btn {% if active_curriculum == c %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    {{ labels.get(c, c) }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endif %}{# end {% else %} list_id #}
+
+{# ── Sub-filter row ── #}
+{% if not list_id %}
+  {% if active_curriculum == 'custom' %}
+  {# Custom list sub-buttons #}
+  <div class="d-flex gap-2 flex-wrap mb-3 align-items-center">
+    <a href="/words?curriculum=custom"
+       class="btn btn-sm {% if not active_custom_list_id %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      All
+    </a>
+    {% for cl in custom_lists %}
+    {% if active_custom_list_id == cl.id %}
+    <div id="name-display" class="d-flex align-items-center gap-1">
+      <span class="btn btn-sm btn-primary" style="pointer-events:none">{{ cl.name }}</span>
+      <button class="btn btn-xs btn-outline-secondary" onclick="startRename()" title="Rename list">✎</button>
+      <button class="btn btn-xs btn-outline-danger" data-list-id="{{ cl.id }}" data-list-name="{{ cl.name|e }}" onclick="deleteListByBtn(this)" title="Delete list">🗑</button>
+    </div>
+    <div id="rename-form" class="d-none d-flex align-items-center gap-1">
+      <input type="text" class="form-control form-control-sm" id="rename-input"
+             value="{{ cl.name|e }}" style="max-width:180px"
+             onkeydown="if(event.key==='Enter') saveRename(); if(event.key==='Escape') cancelRename()">
+      <button class="btn btn-sm btn-primary" onclick="saveRename()">Save</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="cancelRename()">✕</button>
+    </div>
+    {% else %}
+    <div class="d-flex align-items-center gap-1">
+      <a href="/words?curriculum=custom&list_id={{ cl.id }}"
+         class="btn btn-sm btn-outline-secondary">
+        {{ cl.name }}
+      </a>
+      <button class="btn btn-xs btn-outline-danger" data-list-id="{{ cl.id }}" data-list-name="{{ cl.name|e }}" onclick="deleteListByBtn(this)" title="Delete list">🗑</button>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  {# HSK level filter #}
+  <div class="d-flex gap-2 flex-wrap mb-3">
+    <a href="/words?curriculum={{ active_curriculum }}&hsk=all"
+       class="btn btn-sm {% if active_hsk == 'all' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      All
+    </a>
+    {% for lc in level_counts %}
+    <a href="/words?curriculum={{ active_curriculum }}&hsk={{ lc.hsk_level }}"
+       class="btn btn-sm {% if active_hsk == lc.hsk_level|string %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      HSK{{ '7-9' if (active_curriculum == 'hsk3' and lc.hsk_level == 7) else lc.hsk_level }}
+      <span class="ms-1 badge {% if active_hsk == lc.hsk_level|string %}bg-white text-primary{% else %}bg-secondary{% endif %}">
+        {{ lc.total }}
+      </span>
+      {% if lc.seen_cnt %}
+      <span class="ms-1 small {% if active_hsk == lc.hsk_level|string %}text-white-50{% else %}text-success{% endif %}">
+        {{ lc.seen_cnt }}✓
+      </span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endif %}{# end not list_id #}
+
+{% if list_id or active_custom_list_id %}
+<div class="d-flex justify-content-end mb-2">
+  <button class="btn btn-sm btn-outline-secondary" onclick="startGenerate()">
+    ✨ Generate missing examples
+  </button>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover table-words mb-0">
+      <thead class="table-light">
+        <tr>
+          {% if active_hsk == 'all' %}<th>HSK</th>{% endif %}
+          <th>Hanzi</th>
+          <th>Pinyin</th>
+          <th>English</th>
+          <th>Grade</th>
+          <th>Progress</th>
+          <th>Due</th>
+          {% if list_id or active_custom_list_id %}<th style="width:80px"></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in words %}
+        <tr style="cursor:pointer" onclick="openWordModal({{ loop.index0 }})">
+          {% if active_hsk == 'all' %}
+          <td>
+            {% if w.hsk_level %}
+            <span class="hsk-badge">HSK{{ '7-9' if (active_curriculum == 'hsk3' and w.hsk_level == 7) else w.hsk_level }}</span>
+            {% endif %}
+          </td>
+          {% endif %}
+          <td class="hanzi-cell">{{ w.hanzi }}</td>
+          <td class="text-primary">{{ w.pinyin }}</td>
+          <td>{{ w.english }}</td>
+          <td>
+            {% if w.last_grade == 'easy' %}
+            <span class="grade-badge grade-easy">easy</span>
+            {% elif w.last_grade == 'medium' %}
+            <span class="grade-badge grade-medium">medium</span>
+            {% elif w.last_grade == 'wrong' %}
+            <span class="grade-badge grade-wrong">wrong</span>
+            {% else %}
+            <span class="grade-badge grade-new">new</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if w.interval_step is not none and w.interval_step >= 0 %}
+            <div class="step-strip">
+              {% for i in range(12) %}
+              <span {% if i <= w.interval_step %}class="filled"{% endif %}></span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span class="text-muted small">–</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted">
+            {% if w.due_at %}
+              {{ w.due_at[:16].replace('T',' ') }}
+            {% else %}
+              –
+            {% endif %}
+          </td>
+          {% if list_id or active_custom_list_id %}
+          <td>
+            <div class="d-flex gap-1">
+              <button id="edit-btn-{{ w.id }}"
+                      class="btn btn-xs {% if w.example_hanzi or w.example_english %}btn-outline-success{% else %}btn-outline-secondary{% endif %}"
+                      onclick="event.stopPropagation(); toggleEdit({{ w.id }})" title="Edit example sentences">
+                ✎
+              </button>
+              <button class="btn btn-xs btn-outline-danger"
+                      onclick="event.stopPropagation(); removeWord({{ w.id }}, {{ list_id or active_custom_list_id }}, this)" title="Remove from list">
+                ✕
+              </button>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% if list_id or active_custom_list_id %}
+        <tr id="edit-row-{{ w.id }}" class="edit-row d-none">
+          <td colspan="100" class="p-0">
+            <div class="edit-example-panel">
+              <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                  <label class="form-label small fw-semibold mb-1">Example sentence (Mandarin)</label>
+                  <input type="text" class="form-control form-control-sm"
+                         id="ex-hanzi-{{ w.id }}"
+                         value="{{ w.example_hanzi or '' }}"
+                         placeholder="e.g. 你好，你叫什么名字？">
+                </div>
+                <div class="col-md-5">
+                  <label class="form-label small fw-semibold mb-1">Example sentence (English)</label>
+                  <input type="text" class="form-control form-control-sm"
+                         id="ex-english-{{ w.id }}"
+                         value="{{ w.example_english or '' }}"
+                         placeholder="e.g. Hello, what is your name?">
+                </div>
+                <div class="col-md-2 d-flex gap-2">
+                  <button class="btn btn-sm btn-primary flex-fill"
+                          onclick="saveExample({{ w.id }})">Save</button>
+                  <button class="btn btn-sm btn-outline-secondary"
+                          onclick="toggleEdit({{ w.id }})">✕</button>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Word detail modal ── -->
+<div class="modal fade" id="wordModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg" style="border-radius:16px;overflow:hidden">
+      <div class="modal-body p-0">
+        <div class="card-study position-relative" style="min-height:280px;border-radius:0">
+
+          <!-- close -->
+          <button type="button" class="btn-close position-absolute"
+                  style="top:14px;right:14px" data-bs-dismiss="modal"></button>
+
+          <!-- HSK badge -->
+          <span id="wm-hsk" class="hsk-badge d-none" style="position:absolute;top:14px;left:16px"></span>
+
+          <!-- hanzi + speak -->
+          <div class="d-flex align-items-center justify-content-center gap-2 mt-2">
+            <div class="hanzi-main" id="wm-hanzi"></div>
+            <button class="speak-btn" onclick="wmSpeak('hanzi')" title="Speak">🔊</button>
+          </div>
+
+          <div class="pinyin-main mt-1" id="wm-pinyin"></div>
+          <div class="english-main" id="wm-english"></div>
+
+          <hr class="reveal-divider w-100">
+
+          <!-- example -->
+          <div id="wm-example-block" class="d-none w-100 text-center">
+            <div class="text-muted small mb-1">Example</div>
+            <div class="d-flex align-items-center justify-content-center gap-2">
+              <div class="hanzi-example" id="wm-example-hanzi"></div>
+              <button class="speak-btn" onclick="wmSpeak('example')" title="Speak example">🔊</button>
+            </div>
+            <div class="text-muted small mt-1" id="wm-example-english"></div>
+          </div>
+
+          <div id="wm-no-example" class="text-muted small d-none">No example sentence yet.</div>
+
+        </div>
+
+        <!-- navigation row -->
+        <div class="d-flex justify-content-between align-items-center px-4 py-3 border-top bg-light">
+          <button class="btn btn-outline-secondary btn-sm px-3" id="wm-prev" onclick="wmNav(-1)">← Prev</button>
+          <span class="text-muted small" id="wm-counter"></span>
+          <button class="btn btn-outline-secondary btn-sm px-3" id="wm-next" onclick="wmNav(1)">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Generate examples progress modal ── -->
+<div class="modal fade" id="generateModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" id="gen-dialog">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-body p-4">
+        <h6 class="mb-3 text-center" id="gen-title">Generating example sentences…</h6>
+        <div class="progress mb-2" style="height:8px">
+          <div class="progress-bar progress-bar-striped progress-bar-animated"
+               id="gen-bar" role="progressbar" style="width:0%"></div>
+        </div>
+        <div class="text-muted small text-center mb-3" id="gen-label">Starting…</div>
+
+        <!-- results table (hidden until done) -->
+        <div id="gen-results" class="d-none">
+          <div class="text-muted small mb-2">Review and edit before closing:</div>
+          <table class="table table-sm table-bordered mb-0" style="font-size:.85rem">
+            <thead class="table-light">
+              <tr>
+                <th style="width:70px">Word</th>
+                <th>Example sentence</th>
+                <th>Translation</th>
+                <th style="width:44px"></th>
+              </tr>
+            </thead>
+            <tbody id="gen-results-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-center d-none" id="gen-footer">
+        <button class="btn btn-sm btn-primary px-4" onclick="closeGenerateModal()">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CURRICULUM = {{ active_curriculum | tojson }};
+// ── Word detail modal ────────────────────────────────────────────────────────
+const WM_WORDS = [
+  {% for w in words %}
+  {
+    id:              {{ w.id }},
+    hanzi:           {{ w.hanzi                    | tojson }},
+    pinyin:          {{ w.pinyin                   | tojson }},
+    english:         {{ w.english                  | tojson }},
+    example_hanzi:   {{ (w.example_hanzi   or '')  | tojson }},
+    example_english: {{ (w.example_english or '')  | tojson }},
+    hsk_level:       {{ w.hsk_level                | tojson }},
+  },
+  {% endfor %}
+];
+
+let wmIdx   = 0;
+let wmModal = null;
+let wmAudio = null;
+
+function wmSpeak(part) {
+  const w    = WM_WORDS[wmIdx];
+  const text = part === 'example' ? w.example_hanzi : w.hanzi;
+  if (!text) return;
+  if (wmAudio) { wmAudio.pause(); wmAudio = null; }
+  wmAudio = new Audio('/api/tts?text=' + encodeURIComponent(text));
+  wmAudio.onended = () => { wmAudio = null; };
+  wmAudio.play();
+}
+
+function wmRender() {
+  const w = WM_WORDS[wmIdx];
+  document.getElementById('wm-hanzi').textContent           = w.hanzi;
+  document.getElementById('wm-pinyin').textContent          = w.pinyin;
+  document.getElementById('wm-english').textContent         = w.english;
+  document.getElementById('wm-example-hanzi').textContent   = w.example_hanzi;
+  document.getElementById('wm-example-english').textContent = w.example_english;
+  document.getElementById('wm-counter').textContent         = `${wmIdx + 1} / ${WM_WORDS.length}`;
+
+  const hasExample = !!w.example_hanzi;
+  document.getElementById('wm-example-block').classList.toggle('d-none', !hasExample);
+  document.getElementById('wm-no-example').classList.toggle('d-none', hasExample);
+
+  const hskBadge = document.getElementById('wm-hsk');
+  if (w.hsk_level) {
+    hskBadge.textContent = 'HSK ' + (CURRICULUM === 'hsk3' && w.hsk_level === 7 ? '7-9' : w.hsk_level);
+    hskBadge.classList.remove('d-none');
+  } else {
+    hskBadge.classList.add('d-none');
+  }
+
+  document.getElementById('wm-prev').disabled = wmIdx === 0;
+  document.getElementById('wm-next').disabled = wmIdx === WM_WORDS.length - 1;
+}
+
+function wmNav(dir) {
+  const next = wmIdx + dir;
+  if (next < 0 || next >= WM_WORDS.length) return;
+  wmIdx = next;
+  wmRender();
+  wmSpeak('hanzi');
+}
+
+function openWordModal(idx) {
+  wmIdx = idx;
+  wmRender();
+  if (!wmModal) wmModal = new bootstrap.Modal(document.getElementById('wordModal'));
+  wmModal.show();
+  wmSpeak('hanzi');
+}
+
+document.getElementById('wordModal').addEventListener('hidden.bs.modal', () => {
+  if (wmAudio) { wmAudio.pause(); wmAudio = null; }
+});
+
+document.addEventListener('keydown', e => {
+  if (!wmModal?._isShown) return;
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); wmNav(-1); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); wmNav(1);  }
+});
+
+// ── Custom list delete (always available when custom lists exist) ─────────────
+function deleteListByBtn(btn) {
+  deleteListById(+btn.dataset.listId, btn.dataset.listName);
+}
+
+async function deleteListById(id, name) {
+  if (!confirm(`Delete list "${name}"?\nAll words will be removed from the list (your progress is kept).`)) return;
+  const res  = await fetch('/api/custom-list/delete', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({list_id: id}),
+  });
+  const data = await res.json();
+  if (data.ok) window.location.href = '/words?curriculum=custom';
+  else alert('Error: ' + (data.error || 'Unknown'));
+}
+
+// ── Custom list actions (only when a list is active) ─────────────────────────
+{% if list_id or active_custom_list_id %}
+const LIST_ID = {{ list_id or active_custom_list_id }};
+
+function startRename() {
+  document.getElementById('name-display').classList.add('d-none');
+  document.getElementById('rename-form').classList.remove('d-none');
+  const inp = document.getElementById('rename-input');
+  inp.focus(); inp.select();
+}
+function cancelRename() {
+  document.getElementById('rename-form').classList.add('d-none');
+  document.getElementById('name-display').classList.remove('d-none');
+}
+async function saveRename() {
+  const inp  = document.getElementById('rename-input');
+  const name = inp.value.trim();
+  if (!name) { inp.focus(); return; }
+  const res  = await fetch('/api/custom-list/rename', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({list_id: LIST_ID, name}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    const inPlace = document.getElementById('list-name-display');
+    if (inPlace) {
+      inPlace.textContent = name;
+      document.title = name + ' – Mandarin Trainer';
+      cancelRename();
+    } else {
+      location.reload();
+    }
+  } else {
+    alert('Error: ' + (data.error || 'Unknown'));
+  }
+}
+
+
+function toggleEdit(id) {
+  document.getElementById('edit-row-' + id).classList.toggle('d-none');
+}
+
+async function removeWord(wordId, listId, btn) {
+  if (!confirm('Remove this word from the list?')) return;
+  const res  = await fetch('/api/custom-list/remove-word', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({word_id: wordId, list_id: listId}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    const row = btn.closest('tr');
+    const editRow = document.getElementById('edit-row-' + wordId);
+    if (editRow) editRow.remove();
+    row.remove();
+  } else {
+    alert('Error: ' + (data.error || 'Unknown'));
+  }
+}
+
+// ── Generate examples ────────────────────────────────────────────────────────
+let genModal    = null;
+let genPollTimer = null;
+
+async function startGenerate() {
+  const res  = await fetch('/api/lists/' + LIST_ID + '/generate-examples', {method: 'POST'});
+  const data = await res.json();
+  if (!data.ok) { alert('Error: ' + (data.error || 'Unknown')); return; }
+
+  document.getElementById('gen-bar').style.width = '0%';
+  document.getElementById('gen-bar').className   = 'progress-bar progress-bar-striped progress-bar-animated';
+  document.getElementById('gen-label').textContent = 'Starting…';
+  document.getElementById('gen-title').textContent = 'Generating example sentences…';
+  document.getElementById('gen-results').classList.add('d-none');
+  document.getElementById('gen-results-body').innerHTML = '';
+  document.getElementById('gen-footer').classList.add('d-none');
+  document.getElementById('gen-dialog').classList.remove('modal-lg');
+
+  if (!genModal) genModal = new bootstrap.Modal(document.getElementById('generateModal'));
+  genModal.show();
+  genPollTimer = setInterval(() => pollGenerate(data.task_id), 2000);
+}
+
+async function pollGenerate(taskId) {
+  let data;
+  try {
+    const res = await fetch('/api/generate-status/' + taskId);
+    data = await res.json();
+  } catch { return; }
+  if (!data.ok) return;
+
+  const pct = data.total > 0 ? Math.round(data.done / data.total * 100) : 0;
+  document.getElementById('gen-bar').style.width   = pct + '%';
+  document.getElementById('gen-label').textContent = data.total > 0
+    ? `${data.done} / ${data.total} words`
+    : 'Counting words…';
+
+  if (data.finished) {
+    clearInterval(genPollTimer);
+    genPollTimer = null;
+    const bar = document.getElementById('gen-bar');
+    if (data.status === 'done') {
+      bar.style.width = '100%';
+      bar.className   = 'progress-bar bg-success';
+      document.getElementById('gen-title').textContent = 'Done!';
+      document.getElementById('gen-label').textContent = data.message;
+      if (data.results && data.results.length > 0) {
+        renderGenResults(data.results);
+      }
+    } else {
+      bar.className   = 'progress-bar bg-danger';
+      document.getElementById('gen-title').textContent = 'Error';
+      document.getElementById('gen-label').textContent = data.message;
+    }
+    document.getElementById('gen-footer').classList.remove('d-none');
+  }
+}
+
+function renderGenResults(results) {
+  const dialog = document.getElementById('gen-dialog');
+  dialog.classList.add('modal-lg');
+
+  const tbody = document.getElementById('gen-results-body');
+  tbody.innerHTML = '';
+  results.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.id = 'gen-row-' + r.id;
+    tr.innerHTML = `
+      <td class="fw-bold">${r.hanzi}</td>
+      <td><input type="text" class="form-control form-control-sm"
+                 id="gen-hz-${r.id}" value="${escHtml(r.example_hanzi)}"></td>
+      <td><input type="text" class="form-control form-control-sm"
+                 id="gen-en-${r.id}" value="${escHtml(r.example_english)}"></td>
+      <td class="text-center">
+        <button class="btn btn-xs btn-outline-primary" onclick="saveGenRow(${r.id})" title="Save">✓</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('gen-results').classList.remove('d-none');
+}
+
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function saveGenRow(id) {
+  const hz = document.getElementById('gen-hz-' + id).value.trim();
+  const en = document.getElementById('gen-en-' + id).value.trim();
+  const res  = await fetch('/api/word/examples', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({word_id: id, example_hanzi: hz, example_english: en}),
+  });
+  const data = await res.json();
+  const btn = document.querySelector(`#gen-row-${id} button`);
+  if (data.ok) {
+    btn.textContent = '✓';
+    btn.className   = 'btn btn-xs btn-success';
+    setTimeout(() => { btn.className = 'btn btn-xs btn-outline-primary'; btn.textContent = '✓'; }, 1200);
+  } else {
+    btn.textContent = '!';
+    btn.className = 'btn btn-xs btn-danger';
+  }
+}
+
+function closeGenerateModal() {
+  if (genPollTimer) { clearInterval(genPollTimer); genPollTimer = null; }
+  genModal.hide();
+  location.reload();
+}
+
+async function saveExample(id) {
+  const hanzi   = document.getElementById('ex-hanzi-'   + id).value.trim();
+  const english = document.getElementById('ex-english-' + id).value.trim();
+  const res  = await fetch('/api/word/examples', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({word_id: id, example_hanzi: hanzi, example_english: english}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    const btn = document.getElementById('edit-btn-' + id);
+    btn.classList.toggle('btn-outline-success',   !!(hanzi || english));
+    btn.classList.toggle('btn-outline-secondary', !(hanzi || english));
+    toggleEdit(id);
+  } else {
+    alert('Error: ' + (data.error || 'Unknown'));
+  }
+}
+{% endif %}
+</script>
+{% endblock %}

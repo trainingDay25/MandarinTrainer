@@ -1,0 +1,485 @@
+{% extends 'base.html' %}
+{% block title %}Grammar – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<style>.container.py-4 { padding-bottom: .5rem !important; }</style>
+
+{# Group points by level for sidebar #}
+{% set by_level = {} %}
+{% for p in points %}
+  {% set lv = p.hsk_level or 0 %}
+  {% if lv not in by_level %}{% set _ = by_level.update({lv: []}) %}{% endif %}
+  {% set _ = by_level[lv].append(p) %}
+{% endfor %}
+
+<div class="row g-0 gp-layout">
+
+  {# ── Left sidebar ── #}
+  <div class="col-lg-4 col-xl-3 gp-sidebar">
+
+    <div class="p-2 border-bottom">
+      <input type="text" id="gp-search" class="form-control form-control-sm"
+             placeholder="Search…" oninput="filterPoints()" autocomplete="off">
+      <div class="d-flex align-items-center justify-content-between mt-1 ps-1">
+        <div class="text-muted" style="font-size:.72rem" id="gp-count">
+          {{ points|length }} points
+        </div>
+        <button id="gp-fav-toggle" class="btn btn-xs gp-fav-toggle-btn"
+                onclick="toggleFavFilter()" title="Show favorites only">
+          ☆ Favorites
+        </button>
+      </div>
+    </div>
+
+    <div id="gp-tree" class="gp-tree">
+      {% for lv in [1,2,3,4,5,6] %}
+      {% if by_level.get(lv) %}
+      <div class="gp-level-group" data-level="{{ lv }}">
+        <div class="gp-level-header" onclick="toggleLevel(this)">
+          <span class="gp-chevron">▸</span>
+          HSK {{ lv }}
+          <span class="gp-level-count">{{ by_level[lv]|length }}</span>
+        </div>
+        {% for p in by_level[lv] %}
+        {% set first_struct = p.structures.split('|')[0] if p.structures else '' %}
+        <div class="gp-item"
+             id="item-{{ p.id }}"
+             data-id="{{ p.id }}"
+             data-search="{{ (p.title ~ ' ' ~ (p.structures or '') ~ ' ' ~ (p.used_for or ''))|lower }}"
+             data-favorited="{{ p.favorited or 0 }}"
+             style="display:none"
+             onclick="selectPoint('{{ p.id }}', this)">
+          <div class="gp-item-title">{{ p.title }}</div>
+          {% if first_struct %}
+          <div class="gp-item-struct">{{ first_struct }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% if by_level.get(0) %}
+      <div class="gp-level-group" data-level="0">
+        <div class="gp-level-header" onclick="toggleLevel(this)">
+          <span class="gp-chevron">▸</span>
+          Other
+          <span class="gp-level-count">{{ by_level[0]|length }}</span>
+        </div>
+        {% for p in by_level[0] %}
+        {% set first_struct = p.structures.split('|')[0] if p.structures else '' %}
+        <div class="gp-item"
+             id="item-{{ p.id }}"
+             data-id="{{ p.id }}"
+             data-search="{{ (p.title ~ ' ' ~ (p.structures or '') ~ ' ' ~ (p.used_for or ''))|lower }}"
+             data-favorited="{{ p.favorited or 0 }}"
+             style="display:none"
+             onclick="selectPoint('{{ p.id }}', this)">
+          <div class="gp-item-title">{{ p.title }}</div>
+          {% if first_struct %}
+          <div class="gp-item-struct">{{ first_struct }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div id="gp-no-results" class="p-3 text-muted text-center small d-none">
+        No results found.
+      </div>
+    </div>
+  </div>
+
+  {# ── Right content panel ── #}
+  <div class="col-lg-8 col-xl-9 gp-content" id="gp-content">
+
+    <div id="gp-placeholder" class="gp-placeholder">
+      <div style="font-size:2.5rem">📖</div>
+      <div class="fw-semibold mt-2">Grammar Reference</div>
+      <div class="text-muted small mt-1">{{ points|length }} points across HSK 1–6 + other · select one from the list</div>
+    </div>
+
+    <div id="gp-loading" class="gp-placeholder d-none">
+      <div class="spinner-border text-secondary" role="status"></div>
+    </div>
+
+    <div id="gp-detail" class="d-none p-4">
+      <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+        <div>
+          <h4 class="mb-1" id="gp-title"></h4>
+          <div class="d-flex flex-wrap gap-1 align-items-center" id="gp-meta"></div>
+        </div>
+        <div class="d-flex gap-2 flex-shrink-0">
+          <button id="gp-fav-btn" class="btn btn-sm btn-outline-secondary"
+                  onclick="toggleFavorite()" title="Mark as favorite">☆</button>
+          <a id="gp-allset-link" href="#" target="_blank" rel="noopener"
+             class="btn btn-sm btn-outline-secondary">AllSet ↗</a>
+        </div>
+      </div>
+      <div class="grammar-content" id="gp-body"></div>
+    </div>
+
+  </div>
+</div>
+
+{# Attribution #}
+<div class="gp-attribution">
+  Grammar data sourced from
+  <a href="https://github.com/krmanik/Chinese-Grammar" target="_blank" rel="noopener">Chinese-Grammar</a>
+  and
+  <a href="https://github.com/ivankra/asg" target="_blank" rel="noopener">asg</a>
+  — thank you to the contributors of both projects.
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TOTAL_POINTS  = {{ points|length }};
+const userExpanded  = new Set();
+let   ttsAudio      = null;
+let   currentId     = null;
+let   favFilterOn   = false;
+
+// ── TTS ───────────────────────────────────────────────────────────────────────
+
+function speakHanzi(text) {
+  if (!text) return;
+  text = text.replace(/\s+/g, '');
+  if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
+  ttsAudio = new Audio('/api/tts?text=' + encodeURIComponent(text));
+  ttsAudio.onended = () => { ttsAudio = null; };
+  ttsAudio.play();
+}
+
+// ── Collapsible level groups ──────────────────────────────────────────────────
+
+function toggleLevel(header) {
+  const group = header.closest('.gp-level-group');
+  const lv    = group.dataset.level;
+  const q     = document.getElementById('gp-search').value.toLowerCase().trim();
+
+  if (userExpanded.has(lv)) {
+    userExpanded.delete(lv);
+    header.querySelector('.gp-chevron').textContent = '▸';
+    group.querySelectorAll('.gp-item').forEach(el => el.style.display = 'none');
+  } else {
+    userExpanded.add(lv);
+    header.querySelector('.gp-chevron').textContent = '▾';
+    group.querySelectorAll('.gp-item').forEach(el => {
+      const matchesSearch = !q || normalizeSearch(el.dataset.search).includes(q);
+      const matchesFav    = !favFilterOn || el.dataset.favorited === '1';
+      el.style.display = (matchesSearch && matchesFav) ? '' : 'none';
+    });
+  }
+}
+
+// ── Favorites filter ──────────────────────────────────────────────────────────
+
+function toggleFavFilter() {
+  favFilterOn = !favFilterOn;
+  const btn = document.getElementById('gp-fav-toggle');
+  btn.classList.toggle('active', favFilterOn);
+  btn.textContent = favFilterOn ? '★ Favorites' : '☆ Favorites';
+  filterPoints();
+}
+
+function toggleFavorite() {
+  if (!currentId) return;
+  fetch(`/api/grammar/${currentId}/favorite`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      const isFav = data.favorited === 1;
+      document.getElementById('gp-fav-btn').textContent = isFav ? '★' : '☆';
+      document.getElementById('gp-fav-btn').classList.toggle('gp-fav-active', isFav);
+      const item = document.getElementById('item-' + currentId);
+      if (item) item.dataset.favorited = data.favorited;
+      if (favFilterOn && !isFav) {
+        // Item was unfavorited while filter is on — hide it
+        if (item) item.style.display = 'none';
+        filterPoints();
+      }
+    });
+}
+
+function searchTag(term) {
+  const input = document.getElementById('gp-search');
+  input.value = term;
+  input.scrollIntoView({ block: 'nearest' });
+  filterPoints();
+}
+
+// ── Search / filter ───────────────────────────────────────────────────────────
+
+function normalizeSearch(s) {
+  return s.toLowerCase().replace(/[""''"'`]/g, '');
+}
+
+function filterPoints() {
+  const raw = document.getElementById('gp-search').value.toLowerCase().trim();
+  const q   = normalizeSearch(raw);
+  let visible = 0;
+
+  document.querySelectorAll('.gp-level-group').forEach(group => {
+    const lv      = group.dataset.level;
+    const chevron = group.querySelector('.gp-chevron');
+    let groupHits = 0;
+
+    group.querySelectorAll('.gp-item').forEach(item => {
+      const matchesSearch = !q || normalizeSearch(item.dataset.search).includes(q);
+      const matchesFav    = !favFilterOn || item.dataset.favorited === '1';
+      if (matchesSearch && matchesFav) groupHits++;
+    });
+
+    if (q || favFilterOn) {
+      if (groupHits > 0) {
+        group.style.display = '';
+        chevron.textContent = '▾';
+        group.querySelectorAll('.gp-item').forEach(item => {
+          const matchesSearch = !q || normalizeSearch(item.dataset.search).includes(q);
+          const matchesFav    = !favFilterOn || item.dataset.favorited === '1';
+          item.style.display = (matchesSearch && matchesFav) ? '' : 'none';
+        });
+        visible += groupHits;
+      } else {
+        group.style.display = 'none';
+      }
+    } else {
+      group.style.display = '';
+      const isExp = userExpanded.has(lv);
+      chevron.textContent = isExp ? '▾' : '▸';
+      group.querySelectorAll('.gp-item').forEach(item => {
+        item.style.display = isExp ? '' : 'none';
+      });
+    }
+  });
+
+  const label = raw
+    ? `${visible} results`
+    : favFilterOn
+      ? `${visible} favorites`
+      : `${TOTAL_POINTS} points`;
+  document.getElementById('gp-count').textContent = label;
+  document.getElementById('gp-no-results')
+    .classList.toggle('d-none', !(raw || favFilterOn) || visible > 0);
+}
+
+// ── Select & load ─────────────────────────────────────────────────────────────
+
+let activeItem = null;
+
+function selectPoint(id, el) {
+  if (activeItem) activeItem.classList.remove('gp-item-active');
+  activeItem = el;
+  el.classList.add('gp-item-active');
+  currentId = id;
+
+  document.getElementById('gp-placeholder').classList.add('d-none');
+  document.getElementById('gp-detail').classList.add('d-none');
+  document.getElementById('gp-loading').classList.remove('d-none');
+
+  fetch(`/api/grammar/${id}`)
+    .then(r => r.json())
+    .then(renderDetail)
+    .catch(() => {
+      document.getElementById('gp-loading').classList.add('d-none');
+      document.getElementById('gp-detail').classList.remove('d-none');
+      document.getElementById('gp-body').innerHTML =
+        '<p class="text-danger">Failed to load.</p>';
+    });
+}
+
+// ── Render detail ─────────────────────────────────────────────────────────────
+
+function renderDetail(data) {
+  const p   = data.point;
+  const exs = data.examples || [];
+
+  document.getElementById('gp-title').textContent = p.title || '';
+  document.getElementById('gp-allset-link').href  = p.url || '#';
+
+  // Favorite button state
+  const isFav = p.favorited === 1;
+  const favBtn = document.getElementById('gp-fav-btn');
+  favBtn.textContent = isFav ? '★' : '☆';
+  favBtn.classList.toggle('gp-fav-active', isFav);
+
+  const badge = p.hsk_level ? `<span class="hsk-badge me-1">HSK${p.hsk_level}</span>` : '';
+  const metaEl = document.getElementById('gp-meta');
+  metaEl.innerHTML = badge;
+  (p.used_for || []).forEach(t => {
+    const span = document.createElement('span');
+    span.className   = 'gp-tag gp-tag-search';
+    span.title       = 'Search this category';
+    span.textContent = t;
+    span.onclick     = () => searchTag(t);
+    metaEl.appendChild(span);
+  });
+
+  let html = '';
+
+  if (p.detail_html) {
+    html = p.detail_html;
+  } else {
+    if (p.structures && p.structures.length) {
+      html += p.structures.map(s => `<div class="jiegou">${escHtml(s)}</div>`).join('\n');
+    }
+    if (exs.length) {
+      const grouped = {};
+      for (const ex of exs)
+        (grouped[ex.structure || ''] = grouped[ex.structure || ''] || []).push(ex);
+
+      for (const [struct, items] of Object.entries(grouped)) {
+        if (struct) html += `<div class="jiegou">${escHtml(struct)}</div>`;
+        html += '<div class="liju"><ul>';
+        for (const ex of items) {
+          const h = escHtml(ex.hanzi);
+          html += `<li><span class="gp-hanzi">${h}</span>` +
+                  `<button class="speak-btn ms-1" onclick="speakHanzi(${JSON.stringify(ex.hanzi)})" title="Listen">🔊</button>`;
+          if (ex.pinyin)  html += `<span class="pinyin">${escHtml(ex.pinyin)}</span>`;
+          if (ex.english) html += `<span class="trans">${escHtml(ex.english)}</span>`;
+          html += '</li>';
+        }
+        html += '</ul></div>';
+      }
+    }
+  }
+
+  const body = document.getElementById('gp-body');
+  body.innerHTML = html || '<p class="text-muted">No details available.</p>';
+
+  // Add speaker buttons to liju examples from detail_html
+  body.querySelectorAll('.liju li').forEach(li => {
+    if (li.querySelector('.speak-btn')) return;
+    const clone = li.cloneNode(true);
+    clone.querySelectorAll('.trans, .pinyin').forEach(el => el.remove());
+    const text = clone.textContent.trim();
+    if (!text) return;
+    const btn = document.createElement('button');
+    btn.className   = 'speak-btn ms-1';
+    btn.title       = 'Listen';
+    btn.textContent = '🔊';
+    btn.onclick     = (e) => { e.stopPropagation(); speakHanzi(text); };
+    const firstMeta = li.querySelector('.pinyin, .trans');
+    firstMeta ? li.insertBefore(btn, firstMeta) : li.appendChild(btn);
+  });
+
+  // Linkify "See also" items
+  linkifySeeAlso(body);
+
+  document.getElementById('gp-loading').classList.add('d-none');
+  document.getElementById('gp-detail').classList.remove('d-none');
+  document.getElementById('gp-content').scrollTop = 0;
+}
+
+// ── See also linkification ────────────────────────────────────────────────────
+
+const STRIP_PREFIX = /^(expressing|using the|using|indicating|referring to|marking|comparing|turning|adding|making|forming|modifying|negating|asking|connecting|showing)\s+/i;
+
+function normalizeTitle(s) {
+  return s.toLowerCase()
+    .replace(/[""''"'`]/g, '')
+    .replace(STRIP_PREFIX, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Build normalized lookup map from all sidebar items once
+const normTitleMap = new Map();
+document.querySelectorAll('.gp-item').forEach(item => {
+  const raw = item.querySelector('.gp-item-title')?.textContent.trim() || '';
+  normTitleMap.set(raw, item.dataset.id);                  // exact
+  normTitleMap.set(normalizeTitle(raw), item.dataset.id);  // normalized
+});
+
+function linkifySeeAlso(body) {
+  body.querySelectorAll('h3.gp-head').forEach(h3 => {
+    if (!h3.textContent.trim().match(/^see also$/i)) return;
+
+    let el = h3.nextElementSibling;
+    while (el) {
+      const tag = el.tagName;
+      if (tag === 'H3' || tag === 'H4') break;
+
+      if (tag === 'UL') {
+        el.classList.add('gp-see-also-list');
+        el.querySelectorAll('li').forEach(li => tryLinkItem(li, li.textContent.trim()));
+      } else if (tag === 'P') {
+        const text = el.textContent;
+        if (text.includes('*')) {
+          const titles = text.split('*').map(s => s.trim()).filter(Boolean);
+          const ul = document.createElement('ul');
+          ul.className = 'gp-see-also-list';
+          titles.forEach(title => {
+            const li = document.createElement('li');
+            li.textContent = title;
+            tryLinkItem(li, title);
+            ul.appendChild(li);
+          });
+          const next = el.nextElementSibling;
+          el.replaceWith(ul);
+          el = next;
+          continue;
+        }
+      }
+      el = el.nextElementSibling;
+    }
+  });
+}
+
+function tryLinkItem(li, title) {
+  const id = normTitleMap.get(title) || normTitleMap.get(normalizeTitle(title));
+  if (id) {
+    const a = document.createElement('a');
+    a.href        = '#' + id;
+    a.className   = 'gp-see-also-link';
+    a.textContent = title;
+    a.onclick = (e) => {
+      e.preventDefault();
+      const target = document.getElementById('item-' + id);
+      if (!target) return;
+      document.getElementById('gp-search').value = '';
+      filterPoints();
+      const group = target.closest('.gp-level-group');
+      if (group && !userExpanded.has(group.dataset.level)) {
+        userExpanded.add(group.dataset.level);
+        group.querySelector('.gp-chevron').textContent = '▾';
+        group.querySelectorAll('.gp-item').forEach(i => i.style.display = '');
+      }
+      target.scrollIntoView({ block: 'center' });
+      selectPoint(id, target);
+    };
+    li.textContent = '';
+    li.appendChild(a);
+  } else {
+    const span = document.createElement('span');
+    span.className   = 'gp-tag gp-tag-search';
+    span.textContent = title;
+    span.title       = 'Search this topic';
+    span.onclick     = () => searchTag(title);
+    li.innerHTML = '';
+    li.appendChild(span);
+  }
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Hash-based direct link: /grammar#ASGXXXXXX
+if (location.hash) {
+  const id = location.hash.slice(1);
+  const el = document.getElementById('item-' + id);
+  if (el) {
+    const group = el.closest('.gp-level-group');
+    if (group) {
+      userExpanded.add(group.dataset.level);
+      group.querySelector('.gp-chevron').textContent = '▾';
+      group.querySelectorAll('.gp-item').forEach(i => i.style.display = '');
+    }
+    el.scrollIntoView({ block: 'center' });
+    selectPoint(id, el);
+  }
+}
+</script>
+{% endblock %}

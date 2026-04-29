@@ -1,0 +1,205 @@
+{% extends 'base.html' %}
+{% block title %}Home – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+
+    {# ── Title + inline stats ── #}
+    <div class="d-flex align-items-baseline gap-3 flex-wrap mb-1">
+      <h2 class="fw-bold mb-0">今天学什么？</h2>
+      <span class="text-muted small">
+        {{ total }} words
+        {% if due_cnt > 0 %}
+        · <span class="text-danger fw-semibold">{{ due_cnt }} due</span>
+        {% endif %}
+        {% if new_cnt > 0 %}
+        · <span class="text-primary">{{ new_cnt }} new</span>
+        {% endif %}
+        {% if due_cnt == 0 and new_cnt == 0 %}
+        · <span class="text-success">all caught up</span>
+        {% endif %}
+      </span>
+    </div>
+
+    {# ── Curriculum toggle ── #}
+    {% if curricula|length > 1 %}
+    {% set labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'custom': 'Custom'} %}
+    <div class="d-flex gap-2 mb-4 mt-2">
+      {% for c in curricula %}
+      <a href="/?curriculum={{ c }}"
+         class="btn btn-sm {% if curriculum == c %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+        {{ labels.get(c, c) }}
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted small mb-4 mt-1">
+      {{ {'classic':'Classic HSK','hsk3':'New HSK 3.0','custom':'Custom'}.get(curriculum, curriculum) }}
+    </p>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm">
+      <form action="/start" method="post" class="p-4">
+        <input type="hidden" name="curriculum" value="{{ curriculum }}">
+
+        {# ── HSK levels or Custom list picker ── #}
+        <div class="mb-1">
+          {% if curriculum == 'custom' %}
+          <span class="form-section-label d-block mb-2">List</span>
+          <div class="d-flex gap-2 flex-wrap">
+            {% for cl in custom_lists %}
+            <input type="radio" class="btn-check" name="list_id"
+                   id="list{{ cl.id }}" value="{{ cl.id }}"
+                   {% if loop.first %}checked{% endif %}
+                   {% if cl.total == 0 %}disabled{% endif %}>
+            <label class="btn btn-sm btn-outline-secondary hsk-chip" for="list{{ cl.id }}">
+              {{ cl.name }}
+              {% if cl.due_cnt > 0 %}
+              <span class="hsk-dot dot-due"></span>
+              {% elif cl.new_cnt > 0 %}
+              <span class="hsk-dot dot-new"></span>
+              {% endif %}
+            </label>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="form-section-label">HSK Levels</span>
+            <div class="small">
+              <a href="#" onclick="selectAllHSK(true);return false"  class="text-muted me-2">All</a>
+              <a href="#" onclick="selectAllHSK(false);return false" class="text-muted">None</a>
+            </div>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            {% for level in hsk_stats.keys()|sort %}
+            {% set s = hsk_stats[level] %}
+            <input type="checkbox" class="btn-check hsk-check" name="hsk"
+                   id="hsk{{ level }}" value="{{ level }}"
+                   {% if s['total'] == 0 %}disabled{% endif %}>
+            <label class="btn btn-sm btn-outline-secondary hsk-chip" for="hsk{{ level }}">
+              HSK {{ '7-9' if (curriculum == 'hsk3' and level == 7) else level }}
+              {% if s['due_cnt'] > 0 %}
+              <span class="hsk-dot dot-due"></span>
+              {% elif s['new_cnt'] > 0 and s['total'] > 0 %}
+              <span class="hsk-dot dot-new"></span>
+              {% endif %}
+            </label>
+            {% endfor %}
+          </div>
+          <div class="form-text mt-2">Leave all unchecked to include every level.</div>
+          {% endif %}
+        </div>
+
+        <hr class="form-divider">
+
+        {# ── Session type ── #}
+        <div class="mb-1">
+          <span class="form-section-label d-block mb-2">Session type</span>
+          <div class="d-flex gap-4 flex-wrap">
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="session_type"
+                     id="st_srs" value="srs" checked onchange="onSessionType()">
+              <label class="form-check-label" for="st_srs">SRS review</label>
+            </div>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="session_type"
+                     id="st_drill_wrong" value="drill_wrong" onchange="onSessionType()">
+              <label class="form-check-label" for="st_drill_wrong">Drill wrong &amp; medium</label>
+            </div>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="session_type"
+                     id="st_drill_easy" value="drill_easy" onchange="onSessionType()">
+              <label class="form-check-label" for="st_drill_easy">Drill easy</label>
+            </div>
+          </div>
+          <div id="st-hint" class="form-text mt-1">Overdue + new words, spaced-repetition order.</div>
+          <div id="grade-fields"></div>
+          <input type="hidden" id="include-overdue-h" name="include_overdue" value="" disabled>
+        </div>
+
+        <hr class="form-divider">
+
+        {# ── Prompt + New words on one row ── #}
+        <div class="d-flex align-items-center gap-4">
+
+          <span class="form-section-label">Prompt</span>
+          <select name="mode" class="form-select form-select-sm" style="min-width:140px">
+            <option value="mix"     selected>Mix (random)</option>
+            <option value="hanzi"  >Hanzi</option>
+            <option value="pinyin" >Pinyin</option>
+            <option value="english">English</option>
+            <option value="cloze"  >Cloze (fill the blank)</option>
+          </select>
+
+          <span class="form-section-label ms-3" id="limit-label">New words</span>
+          <div class="d-flex align-items-center gap-2" id="limit-section">
+            <button type="button" class="btn btn-sm btn-outline-secondary stepper-btn"
+                    onclick="adjustLimit(-5)">−</button>
+            <span id="limit-display" class="fw-semibold text-center stepper-val">20</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary stepper-btn"
+                    onclick="adjustLimit(+5)">+</button>
+            <input type="hidden" name="limit" id="limit-val" value="20">
+          </div>
+
+        </div>
+
+        <button class="btn btn-primary btn-lg w-100 mt-4" type="submit">
+          Start studying →
+        </button>
+
+      </form>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function selectAllHSK(checked) {
+  document.querySelectorAll('.hsk-check:not(:disabled)').forEach(cb => cb.checked = checked);
+}
+
+const ST_HINTS = {
+  srs:         'Overdue + new words, spaced-repetition order.',
+  drill_wrong: 'All wrong & medium words, plus any overdue.',
+  drill_easy:  'All easy words — a relaxed review session.',
+};
+const ST_GRADES = {
+  srs:         [],
+  drill_wrong: ['wrong', 'medium'],
+  drill_easy:  ['easy'],
+};
+
+function onSessionType() {
+  const type = document.querySelector('[name="session_type"]:checked').value;
+
+  document.getElementById('st-hint').textContent = ST_HINTS[type] || '';
+
+  const gf = document.getElementById('grade-fields');
+  gf.innerHTML = '';
+  (ST_GRADES[type] || []).forEach(g => {
+    const inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = 'grades'; inp.value = g;
+    gf.appendChild(inp);
+  });
+
+  const od = document.getElementById('include-overdue-h');
+  od.disabled = (type === 'srs');
+  od.value    = (type === 'srs') ? '' : '1';
+
+  const dim = type !== 'srs';
+  document.getElementById('limit-section').style.opacity = dim ? '0.4' : '1';
+  document.getElementById('limit-label').style.opacity   = dim ? '0.4' : '1';
+}
+
+function adjustLimit(delta) {
+  const inp  = document.getElementById('limit-val');
+  const disp = document.getElementById('limit-display');
+  const val  = Math.max(5, Math.min(50, parseInt(inp.value) + delta));
+  inp.value = val;
+  disp.textContent = val;
+}
+</script>
+{% endblock %}

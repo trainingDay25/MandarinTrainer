@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Debug – Session Queue{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-baseline gap-3 mb-3">
+  <h5 class="mb-0">Session Queue</h5>
+  <span class="text-muted small">sid: {{ sid }}… &nbsp;|&nbsp; mode: {{ mode }} &nbsp;|&nbsp; {{ rows|length }} cards</span>
+  <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="location.reload()">↻ Refresh</button>
+</div>
+
+{% if not rows %}
+<div class="text-muted">No active session queue.</div>
+{% else %}
+
+{# ── Summary counts ── #}
+{% set counts = {} %}
+{% for r in rows %}{% set _ = counts.update({r.status: counts.get(r.status, 0) + 1}) %}{% endfor %}
+<div class="d-flex gap-2 flex-wrap mb-3">
+  {% for status, color in [('overdue','danger'),('new','primary'),('wrong','danger'),('medium','warning'),('easy','success')] %}
+  {% if counts.get(status) %}
+  <span class="badge bg-{{ color }}">{{ status }}: {{ counts[status] }}</span>
+  {% endif %}
+  {% endfor %}
+  {% set waiting = rows | selectattr('due_at') | selectattr('overdue', 'equalto', false) | list %}
+  {% if waiting %}
+  <span class="badge bg-secondary">waiting (timer): {{ waiting|length }}</span>
+  {% endif %}
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0" style="font-size:.85rem">
+      <thead class="table-light">
+        <tr>
+          <th style="width:40px">#</th>
+          <th>Hanzi</th>
+          <th>Pinyin</th>
+          <th>English</th>
+          <th>HSK</th>
+          <th>Status</th>
+          <th>Due / Timer</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{% if r.due_at and not r.overdue %}text-muted{% endif %}">
+          <td class="text-muted">{{ r.pos }}</td>
+          <td style="font-family:'Noto Sans SC',sans-serif;font-size:1.05rem">{{ r.hanzi }}</td>
+          <td>{{ r.pinyin }}</td>
+          <td class="text-truncate" style="max-width:220px">{{ r.english }}</td>
+          <td class="text-muted">
+            {% if r.hsk_level %}
+              {% if r.curriculum == 'hsk3' and r.hsk_level == 7 %}7-9{% else %}{{ r.hsk_level }}{% endif %}
+            {% endif %}
+          </td>
+          <td>
+            {% if r.status == 'overdue' %}
+              <span class="badge bg-danger">overdue</span>
+            {% elif r.status == 'new' %}
+              <span class="badge bg-primary">new</span>
+            {% elif r.status == 'wrong' %}
+              <span class="badge bg-danger">wrong</span>
+            {% elif r.status == 'medium' %}
+              <span class="badge bg-warning text-dark">medium</span>
+            {% elif r.status == 'easy' %}
+              <span class="badge bg-success">easy</span>
+            {% else %}
+              <span class="badge bg-secondary">{{ r.status }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.due_at and r.overdue %}
+              <span class="text-danger">⚠ overdue (re-due)</span>
+            {% elif r.due_at and r.secs_until %}
+              <span class="text-muted">⏱ {{ r.secs_until }}s</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
