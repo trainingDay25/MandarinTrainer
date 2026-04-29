@@ -24,7 +24,7 @@ A local web app for studying Mandarin Chinese vocabulary and grammar. Built with
 
 <div align="center">
   <img src="screenshots/flashcard-example-turned.png" alt="Flashcard Turned" width="700"/>
-  <p><em>Flashcard Example before grading</em></p>
+  <p><em>Flashcard Example before grading - TTS supported</em></p>
 </div>
 
 ### Word List
@@ -34,10 +34,25 @@ A local web app for studying Mandarin Chinese vocabulary and grammar. Built with
 - Edit custom example sentences per word
 - Track SRS progress indicators per word
 
+<div align="center">
+  <img src="screenshots/word-list-HSK.png" alt="Word List - Example HSK" width="700"/>
+  <p><em>Word List - Example HSK</em></p>
+</div>
+
+<div align="center">
+  <img src="screenshots/word-list-flashcard-HSK.png" alt="Word List - Example HSK - Flashcard View" width="700"/>
+  <p><em>Word List - Example HSK - Flashcard View - TTS supported</em></p>
+</div>
+
 ### Dictionary
 - Full-text search across all words by hanzi, pinyin, or English
 - Pinyin search works with or without tone marks
 - Select words and add them directly to a custom list
+
+<div align="center">
+  <img src="screenshots/cedict-example-customlist.png" alt="Word List Example - Adding to custom list" width="700"/>
+  <p><em>Flashcard session with SRS intervals</em></p>
+</div>
 
 ### Custom Lists
 - Create named word lists from any dictionary search
@@ -55,10 +70,26 @@ A local web app for studying Mandarin Chinese vocabulary and grammar. Built with
 - Bookmark favourite articles with a star — filter to favourites only
 - Grammar data sourced from [Chinese-Grammar](https://github.com/krmanik/Chinese-Grammar) and [asg](https://github.com/ivankara/asg) — thank you to the contributors of both projects
 
+<div align="center">
+  <img src="screenshots/grammar-library-example.png" alt="Grammar Library - Sorted by HSK" width="700"/>
+  <p><em>Grammar Library - Sorted by HSK</em></p>
+</div>
+
 ### Stats & History
 - Activity calendar showing study days over the past 90 days
 - Session history log with date, duration, and review counts
 - Per-curriculum and per-level SRS progress breakdown
+
+<div align="center">
+  <img src="screenshots/stats.png" alt="Some in-depth stats for personal tracking" width="700"/>
+  <p><em>Some in-depth stats for personal tracking</em></p>
+</div>
+
+<div align="center">
+  <img src="screenshots/session.png" alt="Session History" width="700"/>
+  <p><em>Session History</em></p>
+</div>
+
 
 ### LLM Example Sentence Generation *(optional)*
 When [Lemonade](https://github.com/lemonade-sdk/lemonade) is running locally, a **✨ Generate missing examples** button appears on any custom list's word view. It sends words without example sentences to the local LLM and fills them in automatically. The feature is silently unavailable when Lemonade is not running — nothing breaks.
