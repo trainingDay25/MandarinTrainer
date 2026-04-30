@@ -538,7 +538,7 @@ def start():
     queue_map = {}   # wid -> status; first write wins (overdue beats grade)
 
     with get_db() as conn:
-        # ── 1. Overdue words ──────────────────────────────────────────────────
+        # ── 1. Overdue words (all of them, oldest first) ─────────────────────
         if default_mode or include_overdue:
             rows = conn.execute(f'''
                 SELECT w.id FROM words w
@@ -549,9 +549,9 @@ def start():
             for r in rows:
                 queue_map[r['id']] = 'overdue'
 
-        # ── 2. New words ──────────────────────────────────────────────────────
+        # ── 2. New words (always add the full requested limit on top) ─────────
         if default_mode or 'new' in grade_filter:
-            new_limit = max(0, limit - len(queue_map)) if default_mode else limit
+            new_limit = limit
             rows = conn.execute(f'''
                 SELECT w.id FROM words w
                 LEFT JOIN progress p ON w.id = p.word_id
@@ -723,7 +723,7 @@ def api_next():
         'last_grade':       word['last_grade'],
         'status':           card['status'],
         'mode':             mode,
-        'remaining':        len(queue),
+        'remaining':        len(ready) - 1,
         'wrong_label':      wl,
         'medium_label':     ml,
         'easy_label':       el,
@@ -864,7 +864,7 @@ def api_undo():
         'last_grade':       word['last_grade'],
         'status':           entry['status'],
         'mode':             mode,
-        'remaining':        len(queue),
+        'remaining':        sum(1 for c in queue if c['due_at'] is None or datetime.fromisoformat(c['due_at']) <= datetime.now()) - 1,
         'wrong_label':      wl,
         'medium_label':     ml,
         'easy_label':       el,
@@ -874,22 +874,9 @@ def api_undo():
 
 @app.route('/debug/queue')
 def debug_queue():
-    now = datetime.now()
-
-    with get_db() as conn:
-        # Find the most recently created session that still has cards in its queue
-        session_row = conn.execute('''
-            SELECT id, mode, queue, created_at FROM study_sessions
-            WHERE queue != '[]' AND queue IS NOT NULL AND queue != ''
-            ORDER BY created_at DESC LIMIT 1
-        ''').fetchone()
-
-    if not session_row:
-        return render_template('debug_queue.html', rows=[], mode='—', sid='—')
-
-    sid   = session_row['id']
-    mode  = session_row['mode']
-    queue = json.loads(session_row['queue'])
+    sid        = get_sid()
+    queue, mode = load_queue(sid)
+    now        = datetime.now()
 
     if not queue:
         return render_template('debug_queue.html', rows=[], mode=mode, sid=sid[:8])
@@ -897,14 +884,15 @@ def debug_queue():
     wids = [c['wid'] for c in queue]
     with get_db() as conn:
         word_rows = conn.execute(
-            f'SELECT id, hanzi, pinyin, english, hsk_level, curriculum FROM words WHERE id IN ({",".join("?"*len(wids))})',
+            f'SELECT id, hanzi, pinyin, english, hsk_level, curriculum FROM words '
+            f'WHERE id IN ({",".join("?"*len(wids))})',
             wids
         ).fetchall()
     word_map = {r['id']: dict(r) for r in word_rows}
 
     rows = []
     for i, c in enumerate(queue):
-        w = word_map.get(c['wid'], {})
+        w       = word_map.get(c['wid'], {})
         due_dt  = datetime.fromisoformat(c['due_at']) if c['due_at'] else None
         overdue = due_dt is not None and due_dt <= now
         secs    = int((due_dt - now).total_seconds()) if due_dt and not overdue else None
