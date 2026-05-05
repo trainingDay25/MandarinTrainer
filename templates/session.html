@@ -1,0 +1,334 @@
+{% extends 'base.html' %}
+{% block title %}Study – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+
+    <!-- Top bar: remaining count + step -->
+    <div class="d-flex justify-content-between align-items-center mb-3" id="topbar">
+      <div class="d-flex align-items-center gap-2">
+        <button id="btn-back" class="btn btn-sm btn-link text-secondary p-0 d-none"
+                onclick="goBack()" title="Go back to previous card"
+                style="font-size:1.3rem;line-height:1;text-decoration:none">↩</button>
+        <span class="text-muted small"><strong id="progress-label">–</strong></span>
+      </div>
+      <div class="step-strip" id="step-strip">
+        {% for i in range(12) %}<span id="step-{{ i }}"></span>{% endfor %}
+      </div>
+      <span class="text-muted small" id="interval-label">–</span>
+    </div>
+
+    <!-- ── State: loading ── -->
+    <div id="state-loading" class="card-study">
+      <div class="spinner-border text-primary" role="status"></div>
+    </div>
+
+    <!-- ── State: prompt (question side only) ── -->
+    <div id="state-prompt" class="card-study d-none">
+      <span id="prompt-status" class="status-badge">new</span>
+
+      <div id="prompt-hanzi"  class="d-none"><div class="hanzi-main" id="p-hanzi"></div></div>
+      <div id="prompt-pinyin" class="d-none"><div class="pinyin-main" id="p-pinyin"></div></div>
+      <div id="prompt-english"class="d-none"><div class="english-main" id="p-english"></div></div>
+      <div id="prompt-cloze"  class="d-none">
+        <div class="text-muted small mb-2">Fill in the blank:</div>
+        <div class="hanzi-example" id="p-cloze"></div>
+      </div>
+
+      <button class="btn btn-outline-secondary btn-lg mt-4 px-5" onclick="reveal()">
+        Show answer
+      </button>
+    </div>
+
+    <!-- ── State: revealed (full card + grade buttons) ── -->
+    <div id="state-revealed" class="card-study d-none flex-column gap-2">
+      <span id="rev-status" class="status-badge">new</span>
+      <span id="rev-hsk" class="hsk-badge d-none" style="position:absolute;top:12px;left:16px"></span>
+
+      <div class="d-flex align-items-center justify-content-center gap-2">
+        <div class="hanzi-main" id="r-hanzi"></div>
+        <button class="speak-btn" onclick="speakHanzi(document.getElementById('r-hanzi').textContent)" title="Speak">🔊</button>
+      </div>
+      <div class="pinyin-main" id="r-pinyin"></div>
+      <div class="english-main" id="r-english"></div>
+
+      <hr class="reveal-divider w-100">
+
+      <div id="r-example-block" class="d-none w-100 text-center">
+        <div class="text-muted small mb-1">Example</div>
+        <div class="d-flex align-items-center justify-content-center gap-2">
+          <div class="hanzi-example" id="r-example-hanzi"></div>
+          <button class="speak-btn" onclick="speakHanzi(document.getElementById('r-example-hanzi').textContent)" title="Speak example">🔊</button>
+        </div>
+        <div class="text-muted small mt-1" id="r-example-english"></div>
+      </div>
+
+      <div class="d-flex gap-3 mt-4">
+        <button class="btn btn-wrong  rounded-pill px-4 py-2" onclick="grade('wrong')">
+          ✗ Wrong<br><small id="wrong-label"  class="fw-normal opacity-75">1min</small>
+        </button>
+        <button class="btn btn-medium rounded-pill px-4 py-2" onclick="grade('medium')">
+          ~ Medium<br><small id="medium-label" class="fw-normal opacity-75">5min</small>
+        </button>
+        <button class="btn btn-easy   rounded-pill px-4 py-2" onclick="grade('easy')">
+          ✓ Easy<br><small id="easy-label"   class="fw-normal opacity-75">10min</small>
+        </button>
+      </div>
+    </div>
+
+    <!-- ── State: waiting (countdown) ── -->
+    <div id="state-waiting" class="card-study d-none flex-column gap-3">
+      <div class="text-muted small">All cards reviewed — next card in</div>
+      <div class="countdown-circle">
+        <span id="countdown-sec">–</span>
+        <span style="font-size:.75rem;font-weight:400">seconds</span>
+      </div>
+      <a href="/end" class="btn btn-outline-secondary mt-2">End session</a>
+    </div>
+
+    <!-- ── State: done ── -->
+    <div id="state-done" class="card-study d-none flex-column gap-3">
+      <div style="font-size:3rem">🎉</div>
+      <h4>Session complete!</h4>
+      <p class="text-muted">All words have been reviewed.</p>
+      <div class="d-flex gap-3 justify-content-center flex-wrap">
+        <a href="/" class="btn btn-outline-secondary px-4">Back to home</a>
+        <button onclick="keepLearning()" class="btn btn-primary px-4">Keep Learning →</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const INTERVALS_LABEL = ['1m','5m','10m','30m','1h','6h','1d','3d','7d','15d','30d','90d'];
+let current       = null;
+let waitTimer     = null;
+let doneSelection = null;
+let graded        = 0;    // cards reviewed this session
+
+function keepLearning() {
+  const sel  = doneSelection || {};
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/start';
+
+  function field(name, value) {
+    const inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = name; inp.value = value;
+    form.appendChild(inp);
+  }
+
+  if (sel.type === 'custom_list') {
+    field('list_id', sel.list_id);
+  } else {
+    field('curriculum', sel.curriculum || 'classic');
+    (sel.hsk_levels || []).forEach(l => field('hsk', l));
+  }
+
+  field('mode', 'mix');
+  field('limit', '9999');
+  ['new','wrong','medium','easy'].forEach(g => field('grades', g));
+  field('include_overdue', '1');
+
+  document.body.appendChild(form);
+  form.submit();
+}
+
+// ── State management ────────────────────────────────────────────────────────
+
+function showState(name) {
+  ['loading','prompt','revealed','waiting','done'].forEach(s => {
+    const el = document.getElementById('state-' + s);
+    el.classList.toggle('d-none', s !== name);
+  });
+  if (name !== 'waiting' && waitTimer) {
+    clearInterval(waitTimer);
+    waitTimer = null;
+  }
+}
+
+// ── SRS step strip ───────────────────────────────────────────────────────────
+
+function updateStrip(step) {
+  for (let i = 0; i < 12; i++) {
+    document.getElementById('step-' + i).classList.toggle('filled', i <= step);
+  }
+  document.getElementById('interval-label').textContent =
+    step >= 0 ? INTERVALS_LABEL[step] : '–';
+}
+
+// ── Card display ─────────────────────────────────────────────────────────────
+
+function setBadge(id, status) {
+  const el = document.getElementById(id);
+  el.textContent = status;
+  el.className = 'status-badge badge-' + status;
+}
+
+function displayPrompt(card) {
+  let mode = card.mode;
+  if (mode === 'mix') {
+    const modes = ['hanzi','pinyin','english'];
+    if (card.cloze_prompt) modes.push('cloze');
+    mode = modes[Math.floor(Math.random() * modes.length)];
+  }
+  if (mode === 'cloze' && !card.cloze_prompt) mode = 'hanzi';
+  card._promptMode = mode;
+
+  ['hanzi','pinyin','english','cloze'].forEach(m => {
+    document.getElementById('prompt-' + m).classList.toggle('d-none', m !== mode);
+  });
+  document.getElementById('p-hanzi').textContent   = card.hanzi   || '';
+  document.getElementById('p-pinyin').textContent  = card.pinyin  || '';
+  document.getElementById('p-english').textContent = card.english || '';
+  document.getElementById('p-cloze').textContent   = card.cloze_prompt || '';
+
+  setBadge('prompt-status', card.status);
+  const total = graded + 1 + card.remaining;
+  document.getElementById('progress-label').textContent = `${graded + 1} / ${total}`;
+  document.getElementById('wrong-label').textContent  = card.wrong_label;
+  document.getElementById('medium-label').textContent = card.medium_label;
+  document.getElementById('easy-label').textContent   = card.easy_label;
+  updateStrip(card.interval_step);
+}
+
+function displayRevealed(card) {
+  document.getElementById('r-hanzi').textContent           = card.hanzi          || '';
+  document.getElementById('r-pinyin').textContent          = card.pinyin         || '';
+  document.getElementById('r-english').textContent         = card.english        || '';
+  const exHanzi = card.example_hanzi || '';
+  if (card._promptMode === 'cloze' && exHanzi && card.hanzi) {
+    const esc = card.hanzi.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    document.getElementById('r-example-hanzi').innerHTML =
+      exHanzi.replace(new RegExp(esc), `<mark style="background:#ffe066;border-radius:3px;padding:0 2px">${card.hanzi}</mark>`);
+  } else {
+    document.getElementById('r-example-hanzi').textContent = exHanzi;
+  }
+  document.getElementById('r-example-english').textContent = card.example_english || '';
+  document.getElementById('r-example-block').classList.toggle('d-none', !card.example_hanzi);
+  setBadge('rev-status', card.status);
+  const hskBadge = document.getElementById('rev-hsk');
+  if (card.hsk_level) {
+    hskBadge.textContent = 'HSK ' + card.hsk_level;
+    hskBadge.classList.remove('d-none');
+  } else {
+    hskBadge.classList.add('d-none');
+  }
+
+  speakHanzi(card.hanzi);
+}
+
+// ── TTS ──────────────────────────────────────────────────────────────────────
+let ttsAudio = null;
+
+function speakHanzi(text) {
+  if (!text) return;
+  if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
+  ttsAudio = new Audio('/api/tts?text=' + encodeURIComponent(text));
+  ttsAudio.onended = () => { ttsAudio = null; };
+  ttsAudio.play();
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+
+function reveal() {
+  displayRevealed(current);
+  showState('revealed');
+}
+
+async function grade(g) {
+  if (!current) return;
+  showState('loading');
+  graded++;
+  await fetch('/api/grade', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({word_id: current.word_id, grade: g})
+  });
+  nextCard();
+}
+
+// ── Countdown ────────────────────────────────────────────────────────────────
+
+function startCountdown(seconds) {
+  showState('waiting');
+  document.getElementById('countdown-sec').textContent = seconds;
+  waitTimer = setInterval(() => {
+    seconds--;
+    document.getElementById('countdown-sec').textContent = Math.max(seconds, 0);
+    if (seconds <= 0) {
+      clearInterval(waitTimer);
+      waitTimer = null;
+      nextCard();
+    }
+  }, 1000);
+}
+
+// ── Main fetch loop ──────────────────────────────────────────────────────────
+
+async function nextCard() {
+  showState('loading');
+  let data;
+  try {
+    const res = await fetch('/api/next');
+    data = await res.json();
+  } catch (e) {
+    setTimeout(nextCard, 2000);
+    return;
+  }
+
+  if (data.done) {
+    doneSelection = data.selection || {};
+    showState('done');
+    return;
+  }
+
+  if (data.waiting) {
+    startCountdown(data.seconds);
+    return;
+  }
+
+  current = data;
+  document.getElementById('btn-back').classList.toggle('d-none', !data.can_go_back);
+  displayPrompt(data);
+  showState('prompt');
+}
+
+async function goBack() {
+  showState('loading');
+  let data;
+  try {
+    const res = await fetch('/api/undo', {method: 'POST'});
+    data = await res.json();
+  } catch (e) {
+    nextCard();
+    return;
+  }
+  if (!data.ok) { nextCard(); return; }
+  graded = Math.max(0, graded - 1);
+  current = data;
+  document.getElementById('btn-back').classList.toggle('d-none', !data.can_go_back);
+  displayPrompt(data);
+  showState('prompt');
+}
+
+// ── Keyboard shortcuts ───────────────────────────────────────────────────────
+
+document.addEventListener('keydown', e => {
+  const state = ['prompt','revealed','waiting','done'].find(s =>
+    !document.getElementById('state-' + s).classList.contains('d-none')
+  );
+  if (state === 'prompt'   && (e.code === 'Space' || e.code === 'Enter')) { e.preventDefault(); reveal(); }
+  if (state === 'revealed' && e.key === '1') grade('wrong');
+  if (state === 'revealed' && e.key === '2') grade('medium');
+  if (state === 'revealed' && e.key === '3') grade('easy');
+});
+
+// Start
+nextCard();
+</script>
+{% endblock %}

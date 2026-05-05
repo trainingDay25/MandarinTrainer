@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block title %}Custom Lists – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-8">
+
+    <h2 class="mb-1 fw-bold">Custom Lists</h2>
+    <p class="text-muted mb-4">
+      Build your own word lists from the <a href="/dictionary">Dictionary</a>.
+      Search for words, select them, and add to a list.
+    </p>
+
+    {% if not lists %}
+    <div class="alert alert-secondary">
+      No custom lists yet. Search the <a href="/dictionary">Dictionary</a>,
+      select words, and use "Add to list" to create your first list.
+    </div>
+    {% else %}
+    <div class="row g-3">
+      {% for cl in lists %}
+      <div class="col-12 col-md-6">
+        <div class="card border-0 shadow-sm p-3 h-100">
+          <div class="d-flex justify-content-between align-items-start mb-1">
+            <div>
+              <div id="name-display-{{ cl.id }}" class="d-flex align-items-center gap-2">
+                <h5 class="fw-bold mb-0" id="cname-{{ cl.id }}">{{ cl.name }}</h5>
+                <button class="btn btn-xs btn-outline-secondary"
+                        onclick="startRename({{ cl.id }})" title="Rename list">✎</button>
+              </div>
+              <div id="rename-form-{{ cl.id }}" class="d-none d-flex align-items-center gap-1">
+                <input type="text" class="form-control form-control-sm" id="rename-input-{{ cl.id }}"
+                       value="{{ cl.name|e }}" style="max-width:160px"
+                       onkeydown="if(event.key==='Enter') saveRename({{ cl.id }}); if(event.key==='Escape') cancelRename({{ cl.id }})">
+                <button class="btn btn-xs btn-primary"         onclick="saveRename({{ cl.id }})">Save</button>
+                <button class="btn btn-xs btn-outline-secondary" onclick="cancelRename({{ cl.id }})">✕</button>
+              </div>
+            </div>
+            <span class="badge bg-secondary">{{ cl.total }} words</span>
+          </div>
+          <div class="d-flex gap-3 small text-muted mb-3">
+            {% if cl.due_cnt > 0 %}
+            <span class="text-danger fw-semibold">{{ cl.due_cnt }} due</span>
+            {% endif %}
+            {% if cl.new_cnt > 0 %}
+            <span class="text-info fw-semibold">{{ cl.new_cnt }} new</span>
+            {% endif %}
+            {% if cl.due_cnt == 0 and cl.new_cnt == 0 and cl.total > 0 %}
+            <span class="text-success">all caught up</span>
+            {% endif %}
+            {% if cl.total == 0 %}
+            <span>empty</span>
+            {% endif %}
+            <span>Created {{ cl.created_at[:10] if cl.created_at else '–' }}</span>
+          </div>
+          <div class="d-flex gap-2 mt-auto">
+            <a href="/words?list_id={{ cl.id }}" class="btn btn-sm btn-outline-secondary">View words</a>
+            <form method="post" action="/start" class="d-inline">
+              <input type="hidden" name="list_id" value="{{ cl.id }}">
+              <input type="hidden" name="mode"    value="mix">
+              <input type="hidden" name="limit"   value="20">
+              <button type="submit" class="btn btn-sm btn-primary"
+                      {% if cl.total == 0 %}disabled{% endif %}>Study →</button>
+            </form>
+            <button class="btn btn-sm btn-outline-danger ms-auto"
+                    onclick="deleteList({{ cl.id }}, '{{ cl.name|e }}')">Delete</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteList(id, name) {
+  if (!confirm(`Delete list "${name}"?\nAll words will be removed from the list (your progress is kept).`)) return;
+  const res  = await fetch('/api/custom-list/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({list_id: id}),
+  });
+  const data = await res.json();
+  if (data.ok) location.reload();
+  else alert('Error: ' + (data.error || 'Unknown'));
+}
+
+function startRename(id) {
+  document.getElementById('name-display-' + id).classList.add('d-none');
+  document.getElementById('rename-form-'  + id).classList.remove('d-none');
+  const inp = document.getElementById('rename-input-' + id);
+  inp.focus(); inp.select();
+}
+
+function cancelRename(id) {
+  document.getElementById('rename-form-'  + id).classList.add('d-none');
+  document.getElementById('name-display-' + id).classList.remove('d-none');
+}
+
+async function saveRename(id) {
+  const inp  = document.getElementById('rename-input-' + id);
+  const name = inp.value.trim();
+  if (!name) { inp.focus(); return; }
+  const res  = await fetch('/api/custom-list/rename', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({list_id: id, name}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('cname-' + id).textContent = name;
+    cancelRename(id);
+  } else {
+    alert('Error: ' + (data.error || 'Unknown'));
+  }
+}
+</script>
+{% endblock %}

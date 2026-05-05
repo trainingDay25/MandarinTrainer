@@ -1,0 +1,300 @@
+{% extends 'base.html' %}
+{% block title %}Dictionary – Mandarin Trainer{% endblock %}
+
+{% set field_labels = {
+  'all':         'All fields',
+  'simplified':  'Simplified',
+  'traditional': 'Traditional',
+  'pinyin':      'Pinyin',
+  'english':     'English'
+} %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-9">
+
+    <h2 class="mb-1 fw-bold">Dictionary</h2>
+    <p class="text-muted mb-3">
+      Search by hanzi, pinyin (e.g. <em>nǐhǎo</em>, <em>ni3hao3</em>, <em>nihao</em>), or English.
+    </p>
+
+    {% if not has_data %}
+    <div class="alert alert-warning">
+      Dictionary not loaded yet. Run <code>python import_cedict.py</code> to import CC-CEDICT.
+    </div>
+    {% endif %}
+
+    <form method="get" action="/dictionary" class="mb-4" id="dict-form">
+      <div class="input-group input-group-lg">
+
+        {# Field selector dropdown #}
+        <button class="btn btn-outline-secondary dropdown-toggle" type="button"
+                data-bs-toggle="dropdown" id="field-btn"
+                style="min-width:140px;white-space:nowrap">
+          {{ field_labels.get(field, 'All fields') }}
+        </button>
+        <ul class="dropdown-menu">
+          {% for val, label in field_labels.items() %}
+          <li>
+            <a class="dropdown-item {% if field == val %}active{% endif %}"
+               href="#" onclick="setField('{{ val }}', '{{ label }}'); return false">
+              {{ label }}
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+
+        <input type="hidden" name="field" id="field-input" value="{{ field }}">
+        <input type="text" name="q" value="{{ q }}" class="form-control"
+               placeholder="你好 · ni3hao3 · hello"
+               autofocus autocomplete="off"
+               {% if not has_data %}disabled{% endif %}>
+        <button class="btn btn-primary" type="submit"
+                {% if not has_data %}disabled{% endif %}>Search</button>
+      </div>
+    </form>
+
+    {% if ready %}
+      {% if results %}
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="text-muted small" id="result-count">
+          Showing <strong id="shown-count">{{ results|length }}</strong> results for
+          "<strong>{{ q }}</strong>" in <em>{{ field_labels.get(field, field) }}</em>
+        </span>
+        <span class="text-muted small" id="sel-hint">Select rows to add to a list</span>
+      </div>
+      <div class="card border-0 shadow-sm mb-5">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width:36px">
+                  <input type="checkbox" id="select-all" title="Select all"
+                         onchange="toggleAll(this.checked)">
+                </th>
+                <th style="min-width:80px">Simplified</th>
+                <th>Traditional</th>
+                <th>Pinyin</th>
+                <th>English</th>
+              </tr>
+            </thead>
+            <tbody id="dict-tbody">
+              {% for r in results %}
+              <tr class="dict-row" onclick="toggleRow({{ r.id }})">
+                <td onclick="event.stopPropagation()">
+                  <input type="checkbox" class="word-check" data-id="{{ r.id }}"
+                         onchange="onCheck({{ r.id }}, this.checked)">
+                </td>
+                <td class="hanzi-cell fs-5">{{ r.simplified }}</td>
+                <td class="text-muted {% if r.traditional == r.simplified %}opacity-25{% endif %}">
+                  {{ r.traditional }}
+                </td>
+                <td class="text-primary">{{ r.pinyin }}</td>
+                <td class="small">{{ r.english }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {# Lazy-load sentinel #}
+        <div id="load-sentinel" style="height:4px"></div>
+        <div id="load-spinner" class="text-center py-3 d-none">
+          <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
+          <span class="text-muted small ms-2">Loading more…</span>
+        </div>
+        <div id="load-end" class="text-center py-2 text-muted small d-none">
+          All results loaded.
+        </div>
+      </div>
+      {% else %}
+      <div class="alert alert-secondary">
+        No results for "<strong>{{ q }}</strong>" in <em>{{ field_labels.get(field, field) }}</em>.
+      </div>
+      {% endif %}
+    {% endif %}
+
+  </div>
+</div>
+
+{# Sticky action bar #}
+<div id="action-bar"
+     class="position-fixed bottom-0 start-0 end-0 bg-dark text-white shadow-lg d-none"
+     style="z-index:1050;padding:.75rem 1rem">
+  <div class="d-flex align-items-center gap-2 flex-wrap justify-content-center">
+    <span id="sel-count" class="fw-semibold me-1">0 selected</span>
+    <select id="list-pick" class="form-select form-select-sm" style="max-width:180px">
+      <option value="">Choose list…</option>
+    </select>
+    <input type="text" id="new-list-name" class="form-control form-control-sm d-none"
+           placeholder="New list name…" style="max-width:160px">
+    <button class="btn btn-sm btn-primary" onclick="addSelected()">Add →</button>
+    <button class="btn btn-sm btn-outline-light" onclick="clearSelection()">Cancel</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Field selector ────────────────────────────────────────────────────────────
+function setField(val, label) {
+  document.getElementById('field-input').value = val;
+  document.getElementById('field-btn').textContent = label + ' ';
+}
+
+// ── Row selection ────────────────────────────────────────────────────────���────
+const selected = new Set();
+
+function onCheck(id, checked) {
+  checked ? selected.add(id) : selected.delete(id);
+  updateBar();
+}
+
+function toggleRow(id) {
+  const cb = document.querySelector(`.word-check[data-id="${id}"]`);
+  if (!cb) return;
+  cb.checked = !cb.checked;
+  onCheck(id, cb.checked);
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('.word-check').forEach(cb => {
+    cb.checked = checked;
+    checked ? selected.add(Number(cb.dataset.id)) : selected.delete(Number(cb.dataset.id));
+  });
+  updateBar();
+}
+
+function clearSelection() {
+  selected.clear();
+  document.querySelectorAll('.word-check').forEach(cb => cb.checked = false);
+  const sa = document.getElementById('select-all');
+  if (sa) sa.checked = false;
+  updateBar();
+}
+
+function updateBar() {
+  document.getElementById('sel-count').textContent = selected.size + ' selected';
+  document.getElementById('action-bar').classList.toggle('d-none', selected.size === 0);
+}
+
+// ── Lazy loading ───────────────────────────────────���──────────────────────────
+let currentOffset = {{ results|length }};
+let isLoading     = false;
+let hasMore       = {{ 'true' if has_more else 'false' }};
+const Q           = {{ q|tojson }};
+const FIELD       = {{ field|tojson }};
+const TBODY       = document.getElementById('dict-tbody');
+const SPINNER     = document.getElementById('load-spinner');
+const END_MSG     = document.getElementById('load-end');
+const SHOWN       = document.getElementById('shown-count');
+
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function buildRow(r) {
+  const tradFade = r.traditional === r.simplified ? 'opacity-25' : '';
+  return `<tr class="dict-row" onclick="toggleRow(${r.id})">
+    <td onclick="event.stopPropagation()">
+      <input type="checkbox" class="word-check" data-id="${r.id}"
+             onchange="onCheck(${r.id}, this.checked)">
+    </td>
+    <td class="hanzi-cell fs-5">${escHtml(r.simplified)}</td>
+    <td class="text-muted ${tradFade}">${escHtml(r.traditional)}</td>
+    <td class="text-primary">${escHtml(r.pinyin)}</td>
+    <td class="small">${escHtml(r.english)}</td>
+  </tr>`;
+}
+
+async function loadMore() {
+  if (isLoading || !hasMore) return;
+  isLoading = true;
+  if (SPINNER) SPINNER.classList.remove('d-none');
+
+  try {
+    const params = new URLSearchParams({q: Q, field: FIELD, offset: currentOffset, format: 'json'});
+    const res    = await fetch('/dictionary?' + params);
+    const data   = await res.json();
+
+    data.results.forEach(r => TBODY.insertAdjacentHTML('beforeend', buildRow(r)));
+    currentOffset += data.results.length;
+    hasMore = data.has_more;
+
+    if (SHOWN) SHOWN.textContent = currentOffset;
+    if (!hasMore && END_MSG) {
+      END_MSG.classList.remove('d-none');
+      observer.disconnect();
+    }
+  } finally {
+    isLoading = false;
+    if (SPINNER) SPINNER.classList.add('d-none');
+  }
+}
+
+const sentinel = document.getElementById('load-sentinel');
+const observer = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting) loadMore();
+}, { rootMargin: '300px' });
+
+if (sentinel && hasMore) observer.observe(sentinel);
+if (sentinel && !hasMore && END_MSG) END_MSG.classList.remove('d-none');
+
+// ── Custom list dropdown ─────────────────────────────���────────────────────────
+async function loadLists() {
+  const res  = await fetch('/api/custom-lists');
+  const data = await res.json();
+  const sel  = document.getElementById('list-pick');
+  sel.innerHTML = '<option value="">Choose list…</option>';
+  data.lists.forEach(l => {
+    const o = document.createElement('option');
+    o.value = l.id; o.textContent = l.name;
+    sel.appendChild(o);
+  });
+  const newOpt = document.createElement('option');
+  newOpt.value = '__new__'; newOpt.textContent = '＋ Create new list';
+  sel.appendChild(newOpt);
+}
+
+document.getElementById('list-pick').addEventListener('change', function () {
+  document.getElementById('new-list-name').classList.toggle('d-none', this.value !== '__new__');
+});
+
+async function addSelected() {
+  const pick    = document.getElementById('list-pick');
+  const newName = document.getElementById('new-list-name').value.trim();
+  if (!pick.value)                        { alert('Please choose a list.'); return; }
+  if (pick.value === '__new__' && !newName) { alert('Enter a name for the new list.'); return; }
+
+  const res  = await fetch('/api/custom-list/add', {
+    method:  'POST',
+    headers: {'Content-Type': 'application/json'},
+    body:    JSON.stringify({
+      word_ids:  [...selected],
+      list_id:   pick.value === '__new__' ? null : parseInt(pick.value),
+      list_name: pick.value === '__new__' ? newName : null,
+    }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    showToast(`${data.added} word(s) added to list`);
+    clearSelection();
+    loadLists();
+  } else {
+    alert('Error: ' + (data.error || 'Unknown'));
+  }
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'alert alert-success position-fixed top-0 end-0 m-3 shadow';
+  t.style.zIndex = '9999';
+  t.textContent  = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+{% if has_data %}
+loadLists();
+{% endif %}
+</script>
+{% endblock %}

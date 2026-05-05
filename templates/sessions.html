@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}Sessions – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12">
+
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <h2 class="fw-bold mb-0">Session History</h2>
+      <form method="post" action="/reset/sessions"
+            onsubmit="return confirm('Delete all session history?\nThis cannot be undone.')">
+        <button type="submit" class="btn btn-sm btn-outline-danger"
+                {% if not entries %}disabled{% endif %}>
+          ✕ Clear history
+        </button>
+      </form>
+    </div>
+    <p class="text-muted mb-4">Every completed study session, newest first.</p>
+
+    {% if not entries %}
+    <div class="alert alert-secondary">No sessions recorded yet. Complete a session and end it to see it here.</div>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th>Date</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Duration</th>
+            <th class="text-center">Stack</th>
+            <th class="text-center">Seen</th>
+            <th class="text-center text-info">New</th>
+            <th class="text-center text-success">Easy</th>
+            <th class="text-center text-warning">Medium</th>
+            <th class="text-center text-danger">Wrong</th>
+            <th>Selection</th>
+            <th class="text-center">Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in entries %}
+          <tr>
+            <td class="text-muted small">{{ e.date }}</td>
+            <td class="small">{{ e.start }}</td>
+            <td class="small">{{ e.end }}</td>
+            <td class="small text-muted">{{ e.duration }}</td>
+            <td class="text-center">{{ e.stack }}</td>
+            <td class="text-center fw-semibold">{{ e.seen }}</td>
+            <td class="text-center text-info">{{ e.new }}</td>
+            <td class="text-center text-success">{{ e.easy }}</td>
+            <td class="text-center text-warning">{{ e.medium }}</td>
+            <td class="text-center text-danger">{{ e.wrong }}</td>
+            <td class="small text-muted" style="max-width:220px">{{ e.selection }}</td>
+            <td class="text-center">
+              {% set pct = (e.score_val * 100)|int %}
+              <span class="badge fs-6 px-3
+                {% if pct >= 80 %}bg-success
+                {% elif pct >= 50 %}bg-warning text-dark
+                {% else %}bg-danger{% endif %}">
+                {{ e.score }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
