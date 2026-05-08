@@ -5,31 +5,60 @@ body {
   padding: 0;
 }
 
-/* ── Top navbar ── */
-.app-navbar {
-  background: #1a1a2e;
-  border-bottom: 1px solid rgba(255,255,255,0.07);
+/* consistent page width across all tabs */
+.container {
+  max-width: 1100px !important;
 }
-.app-navbar .navbar-brand {
+
+/* ── Combined header ── */
+.app-subheader {
+  background: linear-gradient(135deg, #16213e 0%, #1a1a2e 60%, #22254a 100%);
+  border-bottom: 2px solid rgba(255,255,255,0.08);
+}
+.app-subheader > .container {
+  min-height: 80px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.subheader-logo {
+  height: 100px;
+  width: 100px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));
+}
+.subheader-title {
   color: #fff;
+  font-size: 1.5rem;
   font-weight: 700;
-  font-size: 0.95rem;
+  line-height: 1.1;
   letter-spacing: 0.01em;
+  white-space: nowrap;
 }
-.app-navbar .navbar-brand:hover { color: #e2e8f0; }
-.app-navbar .nav-link {
+.subheader-sub {
+  color: #a0aec0;
+  font-size: 0.95rem;
+  font-family: 'Noto Sans SC', sans-serif;
+  margin-top: 4px;
+  white-space: nowrap;
+}
+.subheader-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  align-items: center;
+}
+.subnav-link {
   color: #a0aec0;
   font-size: 0.875rem;
-  padding: 0.5rem 0.75rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+  text-decoration: none;
   border-bottom: 2px solid transparent;
-  transition: color 0.12s;
+  transition: color 0.12s, background 0.12s;
+  white-space: nowrap;
 }
-.app-navbar .nav-link:hover  { color: #fff; }
-.app-navbar .nav-link.active { color: #fff; border-bottom-color: #5a67d8; }
-.app-navbar .navbar-toggler  { border-color: rgba(255,255,255,0.2); }
-.app-navbar .navbar-toggler-icon {
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255,255,255,0.75%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
-}
+.subnav-link:hover  { color: #fff; background: rgba(255,255,255,0.07); }
+.subnav-link.active { color: #fff; background: rgba(90,103,216,0.25); border-bottom-color: #5a67d8; }
 
 /* ── Stats pills (navbar) ── */
 .stat-pill {
