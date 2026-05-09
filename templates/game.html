@@ -244,6 +244,7 @@
   </div>
 
   <div id="scram-feedback" class="text-center fw-semibold" style="min-height:1.8rem;font-size:1.05rem"></div>
+  <div id="scram-pinyin" class="text-center text-muted small d-none" style="font-style:italic;margin-top:0.25rem"></div>
 
   <div id="scram-done" class="d-none text-center py-5">
     <div class="display-5 mb-2">🏆</div>
@@ -1504,12 +1505,15 @@ async function startScram(mapLimit) {
 
   const scramLimit = mapMode ? (mapLimit || 1) : 10;
   scramQueue = pool.slice(0, scramLimit).map(w => {
-    const chars = [...w.example_hanzi].filter(c => CJK_RE.test(c));
-    // Ensure shuffle is always different from correct order
-    let tiles = [...chars];
+    // Use word-level segments from jieba if available (>1 tile), else fall back to chars
+    const segments = (w.example_segments && w.example_segments.length > 1)
+      ? w.example_segments
+      : [...w.example_hanzi].filter(c => CJK_RE.test(c));
+    let tiles = [...segments];
     do { tiles.sort(() => Math.random() - .5); }
-    while (tiles.length > 1 && tiles.join('') === chars.join(''));
-    return { target: chars.join(''), tiles, english: w.example_english, hanzi: w.example_hanzi };
+    while (tiles.length > 1 && tiles.join('') === segments.join(''));
+    return { target: segments.join(''), segments, tiles,
+             english: w.example_english, hanzi: w.example_hanzi, pinyin: w.example_pinyin || '' };
   });
 
   scramIdx = scramCorrect = scramWrong = 0;
@@ -1527,6 +1531,8 @@ function scramShow() {
   document.getElementById('scram-english').textContent   = item.english;
   document.getElementById('scram-feedback').textContent  = '';
   document.getElementById('scram-feedback').style.color  = '';
+  document.getElementById('scram-pinyin').textContent    = '';
+  document.getElementById('scram-pinyin').classList.add('d-none');
   document.getElementById('scram-reveal-btn').classList.add('d-none');
   document.getElementById('scram-next-btn').classList.add('d-none');
   document.getElementById('scram-replay-btn').classList.add('d-none');
@@ -1697,6 +1703,11 @@ function scramCheck() {
     if (scramAttempts === 0) scramCorrect++;
     fb.textContent = scramAttempts === 0 ? '✓ Correct!' : '✓ Correct (but not on first try)';
     fb.style.color = '#198754';
+    if (item.pinyin) {
+      const py = document.getElementById('scram-pinyin');
+      py.textContent = item.pinyin;
+      py.classList.remove('d-none');
+    }
     playTTS(item.hanzi);
     scramIdx++;
     document.getElementById('scram-clear-btn').classList.add('d-none');
@@ -1708,7 +1719,7 @@ function scramCheck() {
     scramWrong++;
     scramPlaced.forEach((p, i) => {
       p.el.classList.remove('placed');
-      p.el.classList.add(p.char === item.target[i] ? 'correct' : 'wrong');
+      p.el.classList.add(p.char === item.segments[i] ? 'correct' : 'wrong');
     });
     fb.textContent = 'Not quite — try rearranging';
     fb.style.color = '#dc3545';
@@ -1728,6 +1739,11 @@ function scramReveal() {
   const fb   = document.getElementById('scram-feedback');
   fb.textContent = `Answer: ${item.hanzi}`;
   fb.style.color = '#6c757d';
+  if (item.pinyin) {
+    const py = document.getElementById('scram-pinyin');
+    py.textContent = item.pinyin;
+    py.classList.remove('d-none');
+  }
   playTTS(item.hanzi);
   scramIdx++;
   document.getElementById('scram-reveal-btn').classList.add('d-none');
@@ -1741,8 +1757,10 @@ function scramNext() {
 }
 
 function scramUpdateCount(placed, total) {
+  const unit = (scramQueue[scramIdx] && scramQueue[scramIdx].segments &&
+                scramQueue[scramIdx].segments.some(s => s.length > 1)) ? 'words' : 'characters';
   document.getElementById('scram-placed-count').textContent =
-    placed === 0 ? `${total} characters to place` : `${placed} / ${total} placed`;
+    placed === 0 ? `${total} ${unit} to place` : `${placed} / ${total} placed`;
 }
 
 function updateScramProgress() {

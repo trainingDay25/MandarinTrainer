@@ -43,7 +43,7 @@
     <!-- ── State: revealed (full card + grade buttons) ── -->
     <div id="state-revealed" class="card-study d-none flex-column gap-2">
       <span id="rev-status" class="status-badge">new</span>
-      <span id="rev-hsk" class="hsk-badge d-none" style="position:absolute;top:12px;left:16px"></span>
+      <div id="rev-hsk" style="position:absolute;top:12px;left:16px;display:flex;flex-direction:column;gap:3px"></div>
 
       <div class="d-flex align-items-center justify-content-center gap-2">
         <div class="hanzi-main" id="r-hanzi"></div>
@@ -60,6 +60,7 @@
           <div class="hanzi-example" id="r-example-hanzi"></div>
           <button class="speak-btn" onclick="speakHanzi(document.getElementById('r-example-hanzi').textContent)" title="Speak example">🔊</button>
         </div>
+        <div class="text-muted small mt-1" id="r-example-pinyin" style="font-style:italic"></div>
         <div class="text-muted small mt-1" id="r-example-english"></div>
       </div>
 
@@ -206,16 +207,18 @@ function displayRevealed(card) {
   } else {
     document.getElementById('r-example-hanzi').textContent = exHanzi;
   }
+  document.getElementById('r-example-pinyin').textContent  = card.example_pinyin  || '';
   document.getElementById('r-example-english').textContent = card.example_english || '';
   document.getElementById('r-example-block').classList.toggle('d-none', !card.example_hanzi);
   setBadge('rev-status', card.status);
-  const hskBadge = document.getElementById('rev-hsk');
-  if (card.hsk_level) {
-    hskBadge.textContent = 'HSK ' + card.hsk_level;
-    hskBadge.classList.remove('d-none');
-  } else {
-    hskBadge.classList.add('d-none');
-  }
+  const hskContainer = document.getElementById('rev-hsk');
+  hskContainer.innerHTML = '';
+  (card.hsk_labels || []).forEach(lbl => {
+    const span = document.createElement('span');
+    span.className = lbl.curriculum === 'hsk3' ? 'hsk-badge hsk-badge-hsk3' : 'hsk-badge';
+    span.textContent = lbl.label + ': HSK' + lbl.level;
+    hskContainer.appendChild(span);
+  });
 
   speakHanzi(card.hanzi);
 }

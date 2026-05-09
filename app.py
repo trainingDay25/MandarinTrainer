@@ -12,6 +12,7 @@ import threading
 import requests as _requests
 import edge_tts
 from datetime import datetime, timedelta, date as date_cls
+import jieba
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mandarin-srs-dev-key')
@@ -422,9 +423,82 @@ def future_str(minutes):
     return (datetime.now() + timedelta(minutes=minutes)).isoformat()
 
 
+_CURR_LABELS = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'}
+
+def get_hsk_labels(conn, hanzi: str) -> list:
+    """Return [{curriculum, label, level}] for every curriculum this hanzi appears in."""
+    rows = conn.execute(
+        """SELECT DISTINCT curriculum, hsk_level FROM words
+           WHERE hanzi = ? AND curriculum IN ('classic','hsk3')
+           ORDER BY curriculum DESC, hsk_level""",
+        (hanzi,)
+    ).fetchall()
+    result = []
+    for r in rows:
+        lvl = '7-9' if (r['curriculum'] == 'hsk3' and r['hsk_level'] == 7) else str(r['hsk_level'])
+        result.append({'curriculum': r['curriculum'],
+                       'label': _CURR_LABELS.get(r['curriculum'], r['curriculum']),
+                       'level': lvl})
+    return result
+
+
+_CJK_RE     = re.compile(r'[一-鿿]')
+_vocab_set  = set()   # populated by _init_jieba()
+_max_word   = 1
+
+def _init_jieba():
+    """Load all vocab words into jieba and build _vocab_set for post-processing."""
+    global _vocab_set, _max_word
+    with get_db() as conn:
+        rows = conn.execute('SELECT DISTINCT hanzi FROM words WHERE hanzi IS NOT NULL').fetchall()
+    _vocab_set = {r['hanzi'] for r in rows}
+    _max_word  = max((len(w) for w in _vocab_set), default=1)
+    for w in _vocab_set:
+        jieba.add_word(w)
+    jieba.initialize()
+
+def _resplit(seg: str) -> list[str]:
+    """Greedily split a segment into known vocab words (longest-match first)."""
+    result, i = [], 0
+    while i < len(seg):
+        for length in range(min(_max_word, len(seg) - i), 0, -1):
+            if seg[i:i+length] in _vocab_set:
+                result.append(seg[i:i+length])
+                i += length
+                break
+        else:
+            result.append(seg[i])
+            i += 1
+    return result
+
+def segment_hanzi(text: str) -> list[str]:
+    """Segment a Chinese sentence into word-level tokens, dropping punctuation/spaces.
+
+    Jieba occasionally merges adjacent vocab words (e.g. 今天+天气 → 今天天气).
+    We post-process any segment not in our vocab: if the resplit produces at least one
+    multi-char word we use it; otherwise we trust jieba's original (e.g. 每天, 喝水).
+    """
+    if not text:
+        return []
+    result = []
+    for seg in jieba.cut(text):
+        if not seg or not all(_CJK_RE.match(c) for c in seg):
+            continue
+        if seg not in _vocab_set:
+            parts = _resplit(seg)
+            result.extend(parts if any(len(p) > 1 for p in parts) else [seg])
+        else:
+            result.append(seg)
+    return result if result else [c for c in text if _CJK_RE.match(c)]
+
 def make_cloze_prompt(hanzi: str, example: str) -> str:
     if not example or not hanzi or hanzi not in example:
         return ''
+    # Find the jieba segment that contains the vocab word; blank the whole segment
+    # so we never produce a mid-word blank like ＿习 when vocab is 学 inside 学习.
+    for seg in segment_hanzi(example):
+        if hanzi in seg:
+            return example.replace(seg, '＿' * len(seg), 1)
     return example.replace(hanzi, '＿' * len(hanzi), 1)
 
 # ── Session queue (stored in DB, keyed by cookie sid) ─────────────────────────
@@ -763,6 +837,7 @@ def api_next():
         ''', (card['wid'],)).fetchone()
         ex = conn.execute('''
             SELECT COALESCE(we.example_hanzi,   w.example_hanzi)   AS example_hanzi,
+                   COALESCE(we.example_pinyin,  w.example_pinyin)  AS example_pinyin,
                    COALESCE(we.example_english, w.example_english) AS example_english
             FROM words w
             LEFT JOIN word_examples we ON we.id = (
@@ -770,6 +845,7 @@ def api_next():
             )
             WHERE w.id = ?
         ''', (card['wid'],)).fetchone()
+        hsk_labels = get_hsk_labels(conn, word['hanzi']) if word else []
 
     if not word:
         return api_next()
@@ -778,6 +854,7 @@ def api_next():
     wl, ml, el = grade_labels(step)
 
     ex_hanzi   = (ex['example_hanzi']   if ex else None) or ''
+    ex_pinyin  = (ex['example_pinyin']  if ex else None) or ''
     ex_english = (ex['example_english'] if ex else None) or ''
 
     return jsonify({
@@ -786,11 +863,12 @@ def api_next():
         'pinyin':           word['pinyin'],
         'english':          word['english'],
         'example_hanzi':    ex_hanzi,
-        'example_pinyin':   word['example_pinyin'],
+        'example_pinyin':   ex_pinyin,
         'example_english':  ex_english,
         'cloze_prompt':     make_cloze_prompt(word['hanzi'] or '', ex_hanzi),
         'audio_file':       word['audio_file'],
         'hsk_level':        word['hsk_level'],
+        'hsk_labels':       hsk_labels,
         'interval_step':    step,
         'last_grade':       word['last_grade'],
         'status':           card['status'],
@@ -910,6 +988,7 @@ def api_undo():
         ''', (entry['wid'],)).fetchone()
         ex = conn.execute('''
             SELECT COALESCE(we.example_hanzi,   w.example_hanzi)   AS example_hanzi,
+                   COALESCE(we.example_pinyin,  w.example_pinyin)  AS example_pinyin,
                    COALESCE(we.example_english, w.example_english) AS example_english
             FROM words w
             LEFT JOIN word_examples we ON we.id = (
@@ -917,6 +996,7 @@ def api_undo():
             )
             WHERE w.id = ?
         ''', (entry['wid'],)).fetchone()
+        hsk_labels = get_hsk_labels(conn, word['hanzi']) if word else []
 
     save_queue(sid, queue)
 
@@ -927,6 +1007,7 @@ def api_undo():
     wl, ml, el = grade_labels(step)
 
     ex_hanzi   = (ex['example_hanzi']   if ex else None) or ''
+    ex_pinyin  = (ex['example_pinyin']  if ex else None) or ''
     ex_english = (ex['example_english'] if ex else None) or ''
 
     session['current_card'] = {'wid': entry['wid'], 'status': entry['status']}
@@ -939,11 +1020,12 @@ def api_undo():
         'pinyin':           word['pinyin'],
         'english':          word['english'],
         'example_hanzi':    ex_hanzi,
-        'example_pinyin':   word['example_pinyin'],
+        'example_pinyin':   ex_pinyin,
         'example_english':  ex_english,
         'cloze_prompt':     make_cloze_prompt(word['hanzi'] or '', ex_hanzi),
         'audio_file':       word['audio_file'],
         'hsk_level':        word['hsk_level'],
+        'hsk_labels':       hsk_labels,
         'interval_step':    step,
         'last_grade':       word['last_grade'],
         'status':           entry['status'],
@@ -1086,6 +1168,7 @@ def api_game_words():
         rows = conn.execute(
             f'SELECT w.id, w.hanzi, w.pinyin, w.english,'
             f' COALESCE(we.example_hanzi,   w.example_hanzi)   AS example_hanzi,'
+            f' COALESCE(we.example_pinyin,  w.example_pinyin)  AS example_pinyin,'
             f' COALESCE(we.example_english, w.example_english) AS example_english'
             f' FROM words w'
             f' LEFT JOIN word_examples we'
@@ -1105,10 +1188,12 @@ def api_game_words():
             'hanzi':           r['hanzi'],
             'pinyin':          r['pinyin'],
             'english':         r['english'],
-            'example_hanzi':   r['example_hanzi'],
-            'example_english': r['example_english'],
-            'tone_options':    opts,
-            'tone_correct':    correct_idx,
+            'example_hanzi':    r['example_hanzi'],
+            'example_pinyin':   r['example_pinyin'],
+            'example_english':  r['example_english'],
+            'example_segments': segment_hanzi(r['example_hanzi'] or ''),
+            'tone_options':     opts,
+            'tone_correct':     correct_idx,
         })
     return jsonify(result)
 
@@ -1832,7 +1917,9 @@ def api_word_random_example(word_id):
     with get_db() as conn:
         ex = conn.execute(
             '''SELECT COALESCE(we.example_hanzi,   w.example_hanzi)   AS example_hanzi,
-                      COALESCE(we.example_english, w.example_english) AS example_english
+                      COALESCE(we.example_pinyin,  w.example_pinyin)  AS example_pinyin,
+                      COALESCE(we.example_english, w.example_english) AS example_english,
+                      w.hanzi
                FROM words w
                LEFT JOIN word_examples we ON we.id = (
                    SELECT id FROM word_examples WHERE word_id = w.id ORDER BY RANDOM() LIMIT 1
@@ -1840,9 +1927,11 @@ def api_word_random_example(word_id):
                WHERE w.id = ?''',
             (word_id,)
         ).fetchone()
+        hsk_labels = get_hsk_labels(conn, ex['hanzi']) if ex else []
     if ex and ex['example_hanzi']:
-        return jsonify({'example_hanzi': ex['example_hanzi'], 'example_english': ex['example_english'] or ''})
-    return jsonify({})
+        return jsonify({'example_hanzi': ex['example_hanzi'], 'example_pinyin': ex['example_pinyin'] or '',
+                        'example_english': ex['example_english'] or '', 'hsk_labels': hsk_labels})
+    return jsonify({'hsk_labels': hsk_labels})
 
 
 @app.route('/api/word/examples', methods=['POST'])
@@ -2000,4 +2089,5 @@ def api_map_reset():
 
 if __name__ == '__main__':
     init_db()
+    _init_jieba()
     app.run(port=5001, debug=True)

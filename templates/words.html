@@ -278,7 +278,7 @@
                   style="top:14px;right:14px" data-bs-dismiss="modal"></button>
 
           <!-- HSK badge -->
-          <span id="wm-hsk" class="hsk-badge d-none" style="position:absolute;top:14px;left:16px"></span>
+          <div id="wm-hsk" style="position:absolute;top:14px;left:16px;display:flex;flex-direction:column;gap:3px"></div>
 
           <!-- hanzi + speak -->
           <div class="d-flex align-items-center justify-content-center gap-2 mt-2">
@@ -298,6 +298,7 @@
               <div class="hanzi-example" id="wm-example-hanzi"></div>
               <button class="speak-btn" onclick="wmSpeak('example')" title="Speak example">🔊</button>
             </div>
+            <div class="text-muted small mt-1" id="wm-example-pinyin" style="font-style:italic"></div>
             <div class="text-muted small mt-1" id="wm-example-english"></div>
           </div>
 
@@ -393,6 +394,7 @@ async function wmRender() {
   document.getElementById('wm-pinyin').textContent          = w.pinyin;
   document.getElementById('wm-english').textContent         = w.english;
   document.getElementById('wm-example-hanzi').textContent   = w.example_hanzi;
+  document.getElementById('wm-example-pinyin').textContent  = '';
   document.getElementById('wm-example-english').textContent = w.example_english;
   document.getElementById('wm-counter').textContent         = `${wmIdx + 1} / ${WM_WORDS.length}`;
 
@@ -400,27 +402,28 @@ async function wmRender() {
   document.getElementById('wm-example-block').classList.toggle('d-none', !hasExample);
   document.getElementById('wm-no-example').classList.toggle('d-none', hasExample);
 
-  const hskBadge = document.getElementById('wm-hsk');
-  if (w.hsk_level) {
-    hskBadge.textContent = 'HSK ' + (CURRICULUM === 'hsk3' && w.hsk_level === 7 ? '7-9' : w.hsk_level);
-    hskBadge.classList.remove('d-none');
-  } else {
-    hskBadge.classList.add('d-none');
-  }
-
   document.getElementById('wm-prev').disabled = wmIdx === 0;
   document.getElementById('wm-next').disabled = wmIdx === WM_WORDS.length - 1;
 
-  // Fetch a random example from word_examples (may differ from the base sentence)
+  // Fetch a random example + hsk_labels from word_examples
   try {
     const r  = await fetch(`/api/word/${w.id}/random-example`);
     const ex = await r.json();
     if (ex.example_hanzi) {
       document.getElementById('wm-example-hanzi').textContent   = ex.example_hanzi;
+      document.getElementById('wm-example-pinyin').textContent  = ex.example_pinyin  || '';
       document.getElementById('wm-example-english').textContent = ex.example_english || '';
       document.getElementById('wm-example-block').classList.remove('d-none');
       document.getElementById('wm-no-example').classList.add('d-none');
     }
+    const hskContainer = document.getElementById('wm-hsk');
+    hskContainer.innerHTML = '';
+    (ex.hsk_labels || []).forEach(lbl => {
+      const span = document.createElement('span');
+      span.className = lbl.curriculum === 'hsk3' ? 'hsk-badge hsk-badge-hsk3' : 'hsk-badge';
+      span.textContent = lbl.label + ': HSK' + lbl.level;
+      hskContainer.appendChild(span);
+    });
   } catch(e) {}
 }
 
