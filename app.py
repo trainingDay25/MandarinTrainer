@@ -413,6 +413,72 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_dict_traditional ON dictionary(traditional);
         ''')
 
+        # ── Users (multi-user support) ─────────────────────────────────────────
+        conn.executescript('''
+            CREATE TABLE IF NOT EXISTS users (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT    NOT NULL UNIQUE,
+                created_at TEXT    DEFAULT (datetime('now'))
+            );
+            INSERT OR IGNORE INTO users (id, name) VALUES (1, 'trainingDay');
+        ''')
+
+        # Migrate progress: add user_id, rebuild with composite PK (user_id, word_id)
+        prog_cols = {r[1] for r in conn.execute('PRAGMA table_info(progress)').fetchall()}
+        if 'user_id' not in prog_cols:
+            conn.executescript('''
+                ALTER TABLE progress ADD COLUMN user_id INTEGER DEFAULT 1;
+                UPDATE progress SET user_id = 1 WHERE user_id IS NULL;
+                CREATE TABLE progress_new (
+                    user_id       INTEGER NOT NULL DEFAULT 1,
+                    word_id       INTEGER NOT NULL,
+                    interval_step INTEGER DEFAULT 0,
+                    last_grade    TEXT,
+                    last_seen     TEXT,
+                    due_at        TEXT,
+                    PRIMARY KEY (user_id, word_id)
+                );
+                INSERT INTO progress_new
+                    SELECT user_id, word_id, interval_step, last_grade, last_seen, due_at
+                    FROM progress;
+                DROP TABLE progress;
+                ALTER TABLE progress_new RENAME TO progress;
+            ''')
+
+        # Migrate map_progress: add user_id, rebuild with composite PK
+        map_cols = {r[1] for r in conn.execute('PRAGMA table_info(map_progress)').fetchall()}
+        if 'user_id' not in map_cols:
+            conn.executescript('''
+                CREATE TABLE map_progress_new (
+                    user_id    INTEGER NOT NULL DEFAULT 1,
+                    curriculum TEXT    NOT NULL,
+                    level      INTEGER NOT NULL,
+                    circle_num INTEGER NOT NULL,
+                    best_score REAL    DEFAULT 0,
+                    passed     INTEGER DEFAULT 0,
+                    attempts   INTEGER DEFAULT 0,
+                    last_at    TEXT,
+                    PRIMARY KEY (user_id, curriculum, level, circle_num)
+                );
+                INSERT INTO map_progress_new
+                    SELECT 1, curriculum, level, circle_num, best_score, passed, attempts, last_at
+                    FROM map_progress;
+                DROP TABLE map_progress;
+                ALTER TABLE map_progress_new RENAME TO map_progress;
+            ''')
+
+        # Migrate session_logs: add user_id column
+        sl_cols = {r[1] for r in conn.execute('PRAGMA table_info(session_logs)').fetchall()}
+        if 'user_id' not in sl_cols:
+            conn.execute('ALTER TABLE session_logs ADD COLUMN user_id INTEGER DEFAULT 1')
+            conn.execute('UPDATE session_logs SET user_id = 1')
+
+        # Migrate custom_lists: add user_id column
+        cl_cols = {r[1] for r in conn.execute('PRAGMA table_info(custom_lists)').fetchall()}
+        if 'user_id' not in cl_cols:
+            conn.execute('ALTER TABLE custom_lists ADD COLUMN user_id INTEGER DEFAULT 1')
+            conn.execute('UPDATE custom_lists SET user_id = 1')
+
 
 # ── Time helpers ──────────────────────────────────────────────────────────────
 
@@ -520,6 +586,9 @@ def get_sid():
         session['sid'] = str(uuid.uuid4())
     return session['sid']
 
+def get_user_id():
+    return session.get('user_id')
+
 def load_queue(sid):
     with get_db() as conn:
         row = conn.execute('SELECT queue, mode FROM study_sessions WHERE id = ?', (sid,)).fetchone()
@@ -559,25 +628,36 @@ def save_history(sid, history):
 
 @app.context_processor
 def inject_sidebar():
+    uid = get_user_id()
     now = now_str()
+    current_user_name = None
     try:
         with get_db() as conn:
-            due_total = conn.execute(
-                "SELECT COUNT(*) FROM progress WHERE due_at <= ?", (now,)
-            ).fetchone()[0]
-            new_total = conn.execute(
-                """SELECT COUNT(*) FROM words w
-                   LEFT JOIN progress p ON w.id = p.word_id
-                   WHERE p.word_id IS NULL AND w.curriculum != 'custom'"""
-            ).fetchone()[0]
-        return dict(sidebar_due=due_total, sidebar_new=new_total)
+            if uid:
+                row = conn.execute('SELECT name FROM users WHERE id = ?', (uid,)).fetchone()
+                current_user_name = row['name'] if row else None
+                due_total = conn.execute(
+                    "SELECT COUNT(*) FROM progress WHERE due_at <= ? AND user_id = ?", (now, uid)
+                ).fetchone()[0]
+                new_total = conn.execute(
+                    """SELECT COUNT(*) FROM words w
+                       LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
+                       WHERE p.word_id IS NULL AND w.curriculum != 'custom'""", (uid,)
+                ).fetchone()[0]
+            else:
+                due_total = 0
+                new_total = 0
+        return dict(sidebar_due=due_total, sidebar_new=new_total, current_user=current_user_name)
     except Exception:
-        return dict(sidebar_due=0, sidebar_new=0)
+        return dict(sidebar_due=0, sidebar_new=0, current_user=None)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     curriculum = request.args.get('curriculum', 'classic')
     now = now_str()
     with get_db() as conn:
@@ -585,7 +665,7 @@ def index():
         curricula = [r[0] for r in conn.execute(
             "SELECT DISTINCT curriculum FROM words WHERE curriculum != 'custom' ORDER BY curriculum"
         ).fetchall()]
-        if conn.execute('SELECT COUNT(*) FROM custom_lists').fetchone()[0] > 0:
+        if conn.execute('SELECT COUNT(*) FROM custom_lists WHERE user_id = ?', (uid,)).fetchone()[0] > 0:
             curricula.append('custom')
 
         if curriculum == 'custom':
@@ -597,10 +677,11 @@ def index():
                                 THEN 1 ELSE 0 END) AS due_cnt
                 FROM custom_lists cl
                 LEFT JOIN custom_list_words clw ON cl.id = clw.list_id
-                LEFT JOIN progress p ON clw.word_id = p.word_id
+                LEFT JOIN progress p ON clw.word_id = p.word_id AND p.user_id = ?
+                WHERE cl.user_id = ?
                 GROUP BY cl.id
                 ORDER BY cl.name
-            ''', (now,)).fetchall()
+            ''', (now, uid, uid)).fetchall()
             custom_lists = [dict(r) for r in cl_rows]
             total   = sum(cl['total']   for cl in custom_lists)
             due_cnt = sum(cl['due_cnt'] for cl in custom_lists)
@@ -613,14 +694,14 @@ def index():
             ).fetchone()[0]
             new_cnt = conn.execute('''
                 SELECT COUNT(*) FROM words w
-                LEFT JOIN progress p ON w.id = p.word_id
+                LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE p.word_id IS NULL AND w.curriculum = ?
-            ''', (curriculum,)).fetchone()[0]
+            ''', (uid, curriculum)).fetchone()[0]
             due_cnt = conn.execute('''
                 SELECT COUNT(*) FROM progress p
                 JOIN words w ON w.id = p.word_id
-                WHERE p.due_at <= ? AND w.curriculum = ?
-            ''', (now, curriculum)).fetchone()[0]
+                WHERE p.due_at <= ? AND p.user_id = ? AND w.curriculum = ?
+            ''', (now, uid, curriculum)).fetchone()[0]
             hsk_rows = conn.execute('''
                 SELECT
                     w.hsk_level,
@@ -629,11 +710,11 @@ def index():
                     SUM(CASE WHEN p.due_at <= ? AND p.word_id IS NOT NULL
                              THEN 1 ELSE 0 END) AS due_cnt
                 FROM words w
-                LEFT JOIN progress p ON w.id = p.word_id
+                LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE w.curriculum = ?
                 GROUP BY w.hsk_level
                 ORDER BY w.hsk_level
-            ''', (now, curriculum)).fetchall()
+            ''', (now, uid, curriculum)).fetchall()
             hsk_stats = {row['hsk_level']: dict(row) for row in hsk_rows}
 
     return render_template('index.html', total=total, new_cnt=new_cnt, due_cnt=due_cnt,
@@ -643,6 +724,9 @@ def index():
 
 @app.route('/start', methods=['POST'])
 def start():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     mode            = request.form.get('mode', 'mix')
     limit           = int(request.form.get('limit', 20))
     hsk_levels      = [int(x) for x in request.form.getlist('hsk') if x.isdigit()]
@@ -660,7 +744,7 @@ def start():
             filter_frag = f'AND w.id IN (SELECT word_id FROM custom_list_words WHERE list_id IN ({ph}))'
             filters     = list_ids
         else:
-            filter_frag = 'AND w.id IN (SELECT word_id FROM custom_list_words)'
+            filter_frag = f'AND w.id IN (SELECT word_id FROM custom_list_words clw JOIN custom_lists cl ON cl.id = clw.list_id WHERE cl.user_id = {uid})'
             filters     = []
     else:
         filters     = [curriculum]
@@ -680,10 +764,10 @@ def start():
         if default_mode or include_overdue:
             rows = conn.execute(f'''
                 SELECT w.id FROM words w
-                JOIN progress p ON w.id = p.word_id
+                JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE p.due_at <= ? {filter_frag}
                 ORDER BY p.due_at ASC
-            ''', [now] + filters).fetchall()
+            ''', [uid, now] + filters).fetchall()
             for r in rows:
                 queue_map[r['id']] = 'overdue'
 
@@ -692,11 +776,11 @@ def start():
             new_limit = limit
             rows = conn.execute(f'''
                 SELECT w.id FROM words w
-                LEFT JOIN progress p ON w.id = p.word_id
+                LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE p.word_id IS NULL {filter_frag}
                 ORDER BY RANDOM()
                 LIMIT ?
-            ''', filters + [new_limit]).fetchall()
+            ''', [uid] + filters + [new_limit]).fetchall()
             for r in rows:
                 if r['id'] not in queue_map:
                     queue_map[r['id']] = 'new'
@@ -707,9 +791,9 @@ def start():
             ph = ','.join('?' * len(seen_grades))
             rows = conn.execute(f'''
                 SELECT w.id, p.last_grade FROM words w
-                JOIN progress p ON w.id = p.word_id
+                JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE p.last_grade IN ({ph}) {filter_frag}
-            ''', list(seen_grades) + filters).fetchall()
+            ''', [uid] + list(seen_grades) + filters).fetchall()
             for r in rows:
                 if r['id'] not in queue_map:
                     queue_map[r['id']] = r['last_grade']
@@ -759,25 +843,28 @@ def study():
 @app.route('/start-list/<int:list_id>')
 def start_list(list_id):
     """Start a fresh SRS session for a custom list (used by sidebar mid-session switch)."""
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     sid = get_sid()
     now = now_str()
     with get_db() as conn:
         overdue = conn.execute('''
             SELECT w.id FROM words w
-            JOIN progress p ON w.id = p.word_id
+            JOIN progress p ON w.id = p.word_id AND p.user_id = ?
             JOIN custom_list_words clw ON w.id = clw.word_id
             WHERE clw.list_id = ? AND p.due_at <= ?
             ORDER BY p.due_at ASC
-        ''', (list_id, now)).fetchall()
+        ''', (uid, list_id, now)).fetchall()
         new_words = conn.execute('''
             SELECT w.id FROM words w
             JOIN custom_list_words clw ON w.id = clw.word_id
-            LEFT JOIN progress p ON w.id = p.word_id
+            LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
             WHERE clw.list_id = ? AND p.word_id IS NULL
             ORDER BY RANDOM()
             LIMIT ?
-        ''', (list_id, max(0, 20 - len(overdue)))).fetchall()
-        lst = conn.execute('SELECT name FROM custom_lists WHERE id = ?', (list_id,)).fetchone()
+        ''', (uid, list_id, max(0, 20 - len(overdue)))).fetchall()
+        lst = conn.execute('SELECT name FROM custom_lists WHERE id = ? AND user_id = ?', (list_id, uid)).fetchone()
 
     queue_map = {r['id']: 'overdue' for r in overdue}
     for r in new_words:
@@ -839,13 +926,14 @@ def api_next():
     session['current_card'] = {'wid': card['wid'], 'status': card['status']}
     session.modified = True
 
+    uid = get_user_id()
     with get_db() as conn:
         word = conn.execute('''
             SELECT w.*, p.interval_step, p.last_grade, p.last_seen
             FROM words w
-            LEFT JOIN progress p ON w.id = p.word_id
+            LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
             WHERE w.id = ?
-        ''', (card['wid'],)).fetchone()
+        ''', (uid, card['wid'])).fetchone()
         ex = conn.execute('''
             SELECT COALESCE(we.example_hanzi,   w.example_hanzi)   AS example_hanzi,
                    COALESCE(we.example_pinyin,  w.example_pinyin)  AS example_pinyin,
@@ -894,6 +982,9 @@ def api_next():
 
 @app.route('/api/grade', methods=['POST'])
 def api_grade():
+    uid     = get_user_id()
+    if not uid:
+        return jsonify({'ok': False, 'error': 'no user selected'}), 401
     data    = request.json
     word_id = data['word_id']
     grade   = data['grade']   # 'wrong' | 'medium' | 'easy'
@@ -902,8 +993,8 @@ def api_grade():
 
     with get_db() as conn:
         prog = conn.execute(
-            'SELECT interval_step, last_grade, due_at FROM progress WHERE word_id = ?',
-            (word_id,)
+            'SELECT interval_step, last_grade, due_at FROM progress WHERE word_id = ? AND user_id = ?',
+            (word_id, uid)
         ).fetchone()
 
         step     = prog['interval_step'] if prog else -1
@@ -911,14 +1002,14 @@ def api_grade():
         db_due   = future_str(INTERVALS[new_step])
 
         conn.execute('''
-            INSERT INTO progress (word_id, interval_step, last_grade, last_seen, due_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(word_id) DO UPDATE SET
+            INSERT INTO progress (user_id, word_id, interval_step, last_grade, last_seen, due_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, word_id) DO UPDATE SET
                 interval_step = excluded.interval_step,
                 last_grade    = excluded.last_grade,
                 last_seen     = excluded.last_seen,
                 due_at        = excluded.due_at
-        ''', (word_id, new_step, grade, now_str(), db_due))
+        ''', (uid, word_id, new_step, grade, now_str(), db_due))
 
         grade_col = {'wrong': 'wrong_count', 'medium': 'medium_count', 'easy': 'easy_count'}[grade]
         conn.execute(f'UPDATE study_sessions SET {grade_col} = {grade_col} + 1 WHERE id = ?', (sid,))
@@ -933,14 +1024,14 @@ def api_grade():
         ''', (word_id,)).fetchall()
         for m in mirrors:
             conn.execute('''
-                INSERT INTO progress (word_id, interval_step, last_grade, last_seen, due_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(word_id) DO UPDATE SET
+                INSERT INTO progress (user_id, word_id, interval_step, last_grade, last_seen, due_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, word_id) DO UPDATE SET
                     interval_step = excluded.interval_step,
                     last_grade    = excluded.last_grade,
                     last_seen     = excluded.last_seen,
                     due_at        = excluded.due_at
-            ''', (m['id'], new_step, grade, now_str(), db_due))
+            ''', (uid, m['id'], new_step, grade, now_str(), db_due))
 
     # History uses a separate connection — keep outside the block above
     history = load_history(sid)
@@ -981,22 +1072,23 @@ def api_undo():
     queue = [c for c in queue if not (c['wid'] == entry['wid'] and c['due_at'] is not None)]
 
     # Restore progress to the pre-grade state
+    uid = get_user_id()
     with get_db() as conn:
         if entry['prev_step'] is None:
-            conn.execute('DELETE FROM progress WHERE word_id = ?', (entry['wid'],))
+            conn.execute('DELETE FROM progress WHERE word_id = ? AND user_id = ?', (entry['wid'], uid))
         else:
             conn.execute('''
                 UPDATE progress
                 SET interval_step = ?, last_grade = ?, due_at = ?
-                WHERE word_id = ?
-            ''', (entry['prev_step'], entry['prev_grade'], entry['prev_due_at'], entry['wid']))
+                WHERE word_id = ? AND user_id = ?
+            ''', (entry['prev_step'], entry['prev_grade'], entry['prev_due_at'], entry['wid'], uid))
 
         word = conn.execute('''
             SELECT w.*, p.interval_step, p.last_grade, p.last_seen
             FROM words w
-            LEFT JOIN progress p ON w.id = p.word_id
+            LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
             WHERE w.id = ?
-        ''', (entry['wid'],)).fetchone()
+        ''', (uid, entry['wid'])).fetchone()
         ex = conn.execute('''
             SELECT COALESCE(we.example_hanzi,   w.example_hanzi)   AS example_hanzi,
                    COALESCE(we.example_pinyin,  w.example_pinyin)  AS example_pinyin,
@@ -1211,6 +1303,9 @@ def api_game_words():
 
 @app.route('/words')
 def words():
+    uid        = get_user_id()
+    if not uid:
+        return redirect('/users')
     hsk        = request.args.get('hsk', '1')
     curriculum = request.args.get('curriculum', 'classic')
     raw_lid    = request.args.get('list_id', '').strip()
@@ -1219,15 +1314,15 @@ def words():
     with get_db() as conn:
         # ── Standalone custom-list view (from /custom page or sidebar) ─────────
         if list_id and curriculum != 'custom':
-            lst = conn.execute('SELECT id, name FROM custom_lists WHERE id = ?', (list_id,)).fetchone()
+            lst = conn.execute('SELECT id, name FROM custom_lists WHERE id = ? AND user_id = ?', (list_id, uid)).fetchone()
             rows = conn.execute('''
                 SELECT w.*, p.interval_step, p.last_grade, p.last_seen, p.due_at
                 FROM words w
                 JOIN custom_list_words clw ON w.id = clw.word_id
-                LEFT JOIN progress p ON w.id = p.word_id
+                LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE clw.list_id = ?
                 ORDER BY w.id
-            ''', (list_id,)).fetchall()
+            ''', (uid, list_id)).fetchall()
             return render_template('words.html', words=rows, intervals=INTERVALS,
                                    active_hsk=None, active_curriculum=None,
                                    level_counts=[], curricula=[],
@@ -1239,13 +1334,13 @@ def words():
         curricula = [r[0] for r in conn.execute(
             "SELECT DISTINCT curriculum FROM words WHERE curriculum != 'custom' ORDER BY curriculum"
         ).fetchall()]
-        if conn.execute('SELECT COUNT(*) FROM custom_lists').fetchone()[0] > 0:
+        if conn.execute('SELECT COUNT(*) FROM custom_lists WHERE user_id = ?', (uid,)).fetchone()[0] > 0:
             curricula.append('custom')
 
         # ── Custom Lists browse view ───────────────────────────────────────────
         if curriculum == 'custom':
             cl_rows = conn.execute(
-                'SELECT id, name FROM custom_lists ORDER BY name'
+                'SELECT id, name FROM custom_lists WHERE user_id = ? ORDER BY name', (uid,)
             ).fetchall()
             custom_lists = [dict(r) for r in cl_rows]
 
@@ -1254,18 +1349,19 @@ def words():
                     SELECT w.*, p.interval_step, p.last_grade, p.last_seen, p.due_at
                     FROM words w
                     JOIN custom_list_words clw ON w.id = clw.word_id
-                    LEFT JOIN progress p ON w.id = p.word_id
+                    LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                     WHERE clw.list_id = ?
                     ORDER BY w.pinyin COLLATE PINYIN
-                ''', (list_id,)).fetchall()
+                ''', (uid, list_id)).fetchall()
             else:
                 rows = conn.execute('''
                     SELECT DISTINCT w.*, p.interval_step, p.last_grade, p.last_seen, p.due_at
                     FROM words w
                     JOIN custom_list_words clw ON w.id = clw.word_id
-                    LEFT JOIN progress p ON w.id = p.word_id
+                    JOIN custom_lists cl ON cl.id = clw.list_id AND cl.user_id = ?
+                    LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                     ORDER BY w.pinyin COLLATE PINYIN
-                ''').fetchall()
+                ''', (uid, uid)).fetchall()
 
             active_list_name = next(
                 (cl['name'] for cl in custom_lists if cl['id'] == list_id), None
@@ -1286,28 +1382,28 @@ def words():
                    SUM(CASE WHEN p.word_id IS NULL THEN 1 ELSE 0 END)    AS new_cnt,
                    SUM(CASE WHEN p.word_id IS NOT NULL THEN 1 ELSE 0 END) AS seen_cnt
             FROM words w
-            LEFT JOIN progress p ON w.id = p.word_id
+            LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
             WHERE w.curriculum = ?
             GROUP BY w.hsk_level
             ORDER BY w.hsk_level
-        ''', (curriculum,)).fetchall()
+        ''', (uid, curriculum)).fetchall()
 
         if hsk != 'all' and hsk.isdigit():
             rows = conn.execute('''
                 SELECT w.*, p.interval_step, p.last_grade, p.last_seen, p.due_at
                 FROM words w
-                LEFT JOIN progress p ON w.id = p.word_id
+                LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE w.hsk_level = ? AND w.curriculum = ?
                 ORDER BY w.pinyin COLLATE PINYIN
-            ''', (int(hsk), curriculum)).fetchall()
+            ''', (uid, int(hsk), curriculum)).fetchall()
         else:
             rows = conn.execute('''
                 SELECT w.*, p.interval_step, p.last_grade, p.last_seen, p.due_at
                 FROM words w
-                LEFT JOIN progress p ON w.id = p.word_id
+                LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
                 WHERE w.curriculum = ?
                 ORDER BY w.hsk_level, w.pinyin COLLATE PINYIN
-            ''', (curriculum,)).fetchall()
+            ''', (uid, curriculum)).fetchall()
 
     return render_template('words.html', words=rows, intervals=INTERVALS,
                            active_hsk=hsk, active_curriculum=curriculum,
@@ -1376,10 +1472,13 @@ def api_grammar_point(asg_id):
 
 @app.route('/stats')
 def stats():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     with get_db() as conn:
         # ── 1. Top line numbers ───────────────────────────────────────────────
         known_total = conn.execute(
-            'SELECT COUNT(*) FROM progress WHERE interval_step >= 6'
+            'SELECT COUNT(*) FROM progress WHERE interval_step >= 6 AND user_id = ?', (uid,)
         ).fetchone()[0]
 
         totals = conn.execute('''
@@ -1387,12 +1486,12 @@ def stats():
                 COALESCE(SUM(CAST(easy_count   AS INTEGER)), 0) AS easy,
                 COALESCE(SUM(CAST(medium_count AS INTEGER)), 0) AS medium,
                 COALESCE(SUM(CAST(wrong_count  AS INTEGER)), 0) AS wrong
-            FROM session_logs
-        ''').fetchone()
+            FROM session_logs WHERE user_id = ?
+        ''', (uid,)).fetchone()
         total_reviews = totals['easy'] + totals['medium'] + totals['wrong']
 
         session_dates = conn.execute(
-            "SELECT DISTINCT DATE(started_at) AS d FROM session_logs ORDER BY d DESC"
+            "SELECT DISTINCT DATE(started_at) AS d FROM session_logs WHERE user_id = ? ORDER BY d DESC", (uid,)
         ).fetchall()
         streak = 0
         if session_dates:
@@ -1419,11 +1518,11 @@ def stats():
                 COALESCE(SUM(CASE WHEN p.last_grade = 'easy'   THEN 1 ELSE 0 END), 0)     AS easy_cnt,
                 COALESCE(SUM(CASE WHEN p.interval_step >= 6    THEN 1 ELSE 0 END), 0)     AS known_cnt
             FROM words w
-            LEFT JOIN progress p ON w.id = p.word_id
+            LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
             WHERE w.curriculum IN ('classic', 'hsk3')
             GROUP BY w.curriculum, w.hsk_level
             ORDER BY w.curriculum DESC, w.hsk_level
-        ''').fetchall()
+        ''', (uid,)).fetchall()
 
         level_stats = {'classic': [], 'hsk3': []}
         for r in level_rows:
@@ -1457,8 +1556,8 @@ def stats():
                                    AND due_at <  datetime('now','+2 days') THEN 1 ELSE 0 END), 0) AS tomorrow,
                 COALESCE(SUM(CASE WHEN due_at >= datetime('now','+2 days')
                                    AND due_at <  datetime('now','+7 days') THEN 1 ELSE 0 END), 0) AS rest_week
-            FROM progress WHERE due_at IS NOT NULL
-        ''').fetchone()
+            FROM progress WHERE due_at IS NOT NULL AND user_id = ?
+        ''', (uid,)).fetchone()
 
         # ── 5. Activity calendar (last 90 days) ───────────────────────────────
         activity_rows = conn.execute('''
@@ -1467,9 +1566,9 @@ def stats():
                     CAST(medium_count AS INTEGER) +
                     CAST(wrong_count  AS INTEGER)) AS reviews
             FROM session_logs
-            WHERE started_at >= date('now','-90 days')
+            WHERE started_at >= date('now','-90 days') AND user_id = ?
             GROUP BY DATE(started_at)
-        ''').fetchall()
+        ''', (uid,)).fetchall()
         activity = {r['d']: int(r['reviews']) for r in activity_rows}
 
         # ── 6. Library size ───────────────────────────────────────────────────
@@ -1481,7 +1580,7 @@ def stats():
         ''').fetchone()
 
         # ── 7. Map progress ───────────────────────────────────────────────────
-        map_progress_rows = conn.execute('SELECT * FROM map_progress').fetchall()
+        map_progress_rows = conn.execute('SELECT * FROM map_progress WHERE user_id = ?', (uid,)).fetchall()
         map_levels = {}
         for cur in ['classic', 'hsk3']:
             map_levels[cur] = [r[0] for r in conn.execute(
@@ -1552,10 +1651,13 @@ def stats():
 
 @app.route('/sessions')
 def sessions():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     curriculum_labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'}
     with get_db() as conn:
         logs = conn.execute(
-            'SELECT * FROM session_logs WHERE total_seen > 0 ORDER BY started_at DESC'
+            'SELECT * FROM session_logs WHERE total_seen > 0 AND user_id = ? ORDER BY started_at DESC', (uid,)
         ).fetchall()
 
     entries = []
@@ -1629,6 +1731,7 @@ def end_session():
     # Only allow relative paths to prevent open-redirect
     next_url = raw_next if (raw_next.startswith('/') and not raw_next.startswith('//')) else '/'
 
+    uid = session.get('user_id')
     sid = session.get('sid')
     if sid:
         with get_db() as conn:
@@ -1652,12 +1755,14 @@ def end_session():
                 conn.execute('''
                     INSERT INTO session_logs
                         (started_at, ended_at, stack_size, total_seen, new_words,
-                         easy_count, medium_count, wrong_count, selection, score)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         easy_count, medium_count, wrong_count, selection, score, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (row['created_at'], now_str(), row['stack_size'] or 0,
-                      total, new_w, easy, medium, wrong, row['selection'], score))
+                      total, new_w, easy, medium, wrong, row['selection'], score, uid))
             conn.execute('DELETE FROM study_sessions WHERE id = ?', (sid,))
     session.clear()
+    if uid:
+        session['user_id'] = uid   # preserve user across session end
     return redirect(next_url)
 
 
@@ -1779,6 +1884,9 @@ def dictionary():
 
 @app.route('/custom')
 def custom_lists_page():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     now = now_str()
     with get_db() as conn:
         rows = conn.execute('''
@@ -1788,22 +1896,29 @@ def custom_lists_page():
                    SUM(CASE WHEN p.due_at <= ? AND p.word_id IS NOT NULL THEN 1 ELSE 0 END) AS due_cnt
             FROM custom_lists cl
             LEFT JOIN custom_list_words clw ON cl.id = clw.list_id
-            LEFT JOIN progress p ON clw.word_id = p.word_id
+            LEFT JOIN progress p ON clw.word_id = p.word_id AND p.user_id = ?
+            WHERE cl.user_id = ?
             GROUP BY cl.id
             ORDER BY cl.name
-        ''', (now,)).fetchall()
+        ''', (now, uid, uid)).fetchall()
     return render_template('custom.html', lists=[dict(r) for r in rows])
 
 
 @app.route('/api/custom-lists')
 def api_custom_lists():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({'lists': []})
     with get_db() as conn:
-        rows = conn.execute('SELECT id, name FROM custom_lists ORDER BY name').fetchall()
+        rows = conn.execute('SELECT id, name FROM custom_lists WHERE user_id = ? ORDER BY name', (uid,)).fetchall()
     return jsonify({'lists': [dict(r) for r in rows]})
 
 
 @app.route('/api/custom-list/add', methods=['POST'])
 def api_custom_list_add():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({'ok': False, 'error': 'no user selected'}), 401
     data      = request.json
     dict_ids  = data.get('word_ids', [])   # dictionary.id values
     list_id   = data.get('list_id')        # int or None
@@ -1814,14 +1929,14 @@ def api_custom_list_add():
 
     with get_db() as conn:
         if list_id:
-            if not conn.execute('SELECT id FROM custom_lists WHERE id = ?', (list_id,)).fetchone():
+            if not conn.execute('SELECT id FROM custom_lists WHERE id = ? AND user_id = ?', (list_id, uid)).fetchone():
                 return jsonify({'ok': False, 'error': 'List not found'})
         else:
             if not list_name:
                 return jsonify({'ok': False, 'error': 'List name required'})
             cur = conn.execute(
-                'INSERT INTO custom_lists (name, created_at) VALUES (?, ?)',
-                (list_name, now_str())
+                'INSERT INTO custom_lists (name, created_at, user_id) VALUES (?, ?, ?)',
+                (list_name, now_str(), uid)
             )
             list_id = cur.lastrowid
 
@@ -1860,19 +1975,24 @@ def api_custom_list_add():
 
 @app.route('/api/custom-list/delete', methods=['POST'])
 def api_custom_list_delete():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({'ok': False, 'error': 'no user selected'}), 401
     list_id = request.json.get('list_id')
     if not list_id:
         return jsonify({'ok': False, 'error': 'list_id required'})
     with get_db() as conn:
+        if not conn.execute('SELECT id FROM custom_lists WHERE id = ? AND user_id = ?', (list_id, uid)).fetchone():
+            return jsonify({'ok': False, 'error': 'not found'})
         conn.execute('DELETE FROM custom_list_words WHERE list_id = ?', (list_id,))
-        conn.execute('DELETE FROM custom_lists WHERE id = ?', (list_id,))
+        conn.execute('DELETE FROM custom_lists WHERE id = ? AND user_id = ?', (list_id, uid))
         # Clean up custom words that no longer belong to any list
         conn.execute('''
-            DELETE FROM progress WHERE word_id IN (
+            DELETE FROM progress WHERE user_id = ? AND word_id IN (
                 SELECT id FROM words WHERE curriculum = 'custom'
                 AND id NOT IN (SELECT word_id FROM custom_list_words)
             )
-        ''')
+        ''', (uid,))
         conn.execute('''
             DELETE FROM words WHERE curriculum = 'custom'
             AND id NOT IN (SELECT word_id FROM custom_list_words)
@@ -1898,13 +2018,16 @@ def api_custom_list_remove_word():
 
 @app.route('/api/custom-list/rename', methods=['POST'])
 def api_custom_list_rename():
+    uid     = get_user_id()
+    if not uid:
+        return jsonify({'ok': False, 'error': 'no user selected'}), 401
     data    = request.get_json()
     list_id = data.get('list_id')
     name    = (data.get('name') or '').strip()
     if not list_id or not name:
         return jsonify({'ok': False, 'error': 'list_id and name required'})
     with get_db() as conn:
-        conn.execute('UPDATE custom_lists SET name = ? WHERE id = ?', (name, list_id))
+        conn.execute('UPDATE custom_lists SET name = ? WHERE id = ? AND user_id = ?', (name, list_id, uid))
     return jsonify({'ok': True})
 
 
@@ -1964,6 +2087,9 @@ def update_word_examples():
 
 @app.route('/reset/progress', methods=['POST'])
 def reset_progress():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     curriculum = request.form.get('curriculum', 'classic')
     hsk_level  = request.form.get('hsk_level', '')
     raw_next   = request.form.get('next', '/words')
@@ -1972,31 +2098,36 @@ def reset_progress():
     with get_db() as conn:
         if hsk_level and hsk_level.isdigit():
             conn.execute('''
-                DELETE FROM progress WHERE word_id IN (
+                DELETE FROM progress WHERE user_id = ? AND word_id IN (
                     SELECT id FROM words WHERE curriculum = ? AND hsk_level = ?
                 )
-            ''', (curriculum, int(hsk_level)))
+            ''', (uid, curriculum, int(hsk_level)))
         else:
             conn.execute('''
-                DELETE FROM progress WHERE word_id IN (
+                DELETE FROM progress WHERE user_id = ? AND word_id IN (
                     SELECT id FROM words WHERE curriculum = ?
                 )
-            ''', (curriculum,))
+            ''', (uid, curriculum,))
 
     return redirect(next_url)
 
 
 @app.route('/reset/sessions', methods=['POST'])
 def reset_session_logs():
+    uid = get_user_id()
     sid = get_sid()
     with get_db() as conn:
-        conn.execute('DELETE FROM session_logs')
+        if uid:
+            conn.execute('DELETE FROM session_logs WHERE user_id = ?', (uid,))
         conn.execute('DELETE FROM study_sessions WHERE id != ?', (sid,))
     return redirect('/sessions')
 
 
 @app.route('/map')
 def map_page():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     with get_db() as conn:
         curricula = [r[0] for r in conn.execute(
             "SELECT DISTINCT curriculum FROM words WHERE curriculum != 'custom' ORDER BY curriculum"
@@ -2008,7 +2139,7 @@ def map_page():
                 (cur,)
             ).fetchall()]
             level_counts[cur] = lvls
-        progress_rows = conn.execute('SELECT * FROM map_progress').fetchall()
+        progress_rows = conn.execute('SELECT * FROM map_progress WHERE user_id = ?', (uid,)).fetchall()
 
     progress = {}
     for row in progress_rows:
@@ -2060,6 +2191,9 @@ _MAP_THRESHOLDS = {
 
 @app.route('/api/map/complete', methods=['POST'])
 def api_map_complete():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({'ok': False, 'error': 'no user selected'}), 401
     data       = request.json
     curriculum = data.get('curriculum', 'classic')
     level      = int(data.get('level', 1))
@@ -2070,22 +2204,22 @@ def api_map_complete():
 
     with get_db() as conn:
         existing = conn.execute(
-            'SELECT best_score, passed FROM map_progress WHERE curriculum=? AND level=? AND circle_num=?',
-            (curriculum, level, circle_num)
+            'SELECT best_score, passed FROM map_progress WHERE user_id=? AND curriculum=? AND level=? AND circle_num=?',
+            (uid, curriculum, level, circle_num)
         ).fetchone()
         if existing:
             new_best   = max(existing['best_score'] or 0, score)
             new_passed = 1 if (existing['passed'] or passed) else 0
             conn.execute(
                 'UPDATE map_progress SET best_score=?, passed=?, attempts=attempts+1, last_at=? '
-                'WHERE curriculum=? AND level=? AND circle_num=?',
-                (new_best, new_passed, now_str(), curriculum, level, circle_num)
+                'WHERE user_id=? AND curriculum=? AND level=? AND circle_num=?',
+                (new_best, new_passed, now_str(), uid, curriculum, level, circle_num)
             )
         else:
             conn.execute(
-                'INSERT INTO map_progress (curriculum, level, circle_num, best_score, passed, attempts, last_at) '
-                'VALUES (?, ?, ?, ?, ?, 1, ?)',
-                (curriculum, level, circle_num, score, passed, now_str())
+                'INSERT INTO map_progress (user_id, curriculum, level, circle_num, best_score, passed, attempts, last_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, 1, ?)',
+                (uid, curriculum, level, circle_num, score, passed, now_str())
             )
 
     return jsonify({'ok': True, 'passed': bool(passed)})
@@ -2093,15 +2227,83 @@ def api_map_complete():
 
 @app.route('/api/map/reset', methods=['POST'])
 def api_map_reset():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
     curriculum = request.form.get('curriculum', 'classic')
     with get_db() as conn:
-        conn.execute('DELETE FROM map_progress WHERE curriculum=?', (curriculum,))
+        conn.execute('DELETE FROM map_progress WHERE curriculum=? AND user_id=?', (curriculum, uid))
     return redirect('/map')
 
 
 @app.route('/family')
 def family():
     return render_template('family.html')
+
+
+# ── User management ───────────────────────────────────────────────────────────
+
+@app.route('/users')
+def users_page():
+    with get_db() as conn:
+        users = conn.execute('SELECT id, name FROM users ORDER BY name').fetchall()
+    return render_template('users.html', users=[dict(u) for u in users],
+                           current_user_id=get_user_id())
+
+
+@app.route('/users/create', methods=['POST'])
+def users_create():
+    name = (request.form.get('name') or '').strip()
+    if not name:
+        return redirect('/users')
+    with get_db() as conn:
+        try:
+            conn.execute('INSERT INTO users (name) VALUES (?)', (name,))
+        except sqlite3.IntegrityError:
+            pass  # duplicate name — just switch to existing
+        user = conn.execute('SELECT id FROM users WHERE name = ?', (name,)).fetchone()
+    if user:
+        session['user_id'] = user['id']
+    return redirect('/')
+
+
+@app.route('/users/delete/<int:user_id>', methods=['POST'])
+def users_delete(user_id):
+    with get_db() as conn:
+        if not conn.execute('SELECT id FROM users WHERE id = ?', (user_id,)).fetchone():
+            return redirect('/users')
+        # Delete all user-owned data
+        conn.execute('DELETE FROM progress WHERE user_id = ?', (user_id,))
+        conn.execute('DELETE FROM session_logs WHERE user_id = ?', (user_id,))
+        conn.execute('DELETE FROM map_progress WHERE user_id = ?', (user_id,))
+        conn.execute('DELETE FROM custom_list_words WHERE list_id IN (SELECT id FROM custom_lists WHERE user_id = ?)', (user_id,))
+        conn.execute('DELETE FROM custom_lists WHERE user_id = ?', (user_id,))
+        # Clean up custom words no longer referenced by any list
+        conn.execute('''
+            DELETE FROM words WHERE curriculum = 'custom'
+            AND id NOT IN (SELECT word_id FROM custom_list_words)
+        ''')
+        conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    # If this was the active user, clear the session
+    if session.get('user_id') == user_id:
+        session.clear()
+    return redirect('/users')
+
+
+@app.route('/users/switch/<int:user_id>', methods=['POST'])
+def users_switch(user_id):
+    with get_db() as conn:
+        user = conn.execute('SELECT id FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not user:
+        return redirect('/users')
+    # End any active study session cleanly (delete without logging)
+    sid = session.get('sid')
+    if sid:
+        with get_db() as conn:
+            conn.execute('DELETE FROM study_sessions WHERE id = ?', (sid,))
+    session.clear()
+    session['user_id'] = user_id
+    return redirect('/')
 
 
 if __name__ == '__main__':

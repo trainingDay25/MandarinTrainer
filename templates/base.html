@@ -26,6 +26,15 @@
         <div class="subheader-sub">普通话练习</div>
       </div>
 
+      {# Current user indicator #}
+      {% if current_user %}
+      <a href="/users" class="flex-shrink-0 text-decoration-none me-1"
+         title="Switch account"
+         style="font-size:.8rem; color: var(--bs-secondary); white-space:nowrap">
+        👤 {{ current_user }}
+      </a>
+      {% endif %}
+
       {# Nav links — grows to fill available space #}
       <nav class="subheader-nav me-auto">
         <a href="{{ '/end?next=/' if in_session else '/' }}"

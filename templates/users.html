@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Who's studying? – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-4">
+
+    <h2 class="fw-bold mb-1 text-center">Who's studying?</h2>
+    <p class="text-muted text-center mb-4 small">Select your account to continue.</p>
+
+    <div class="d-flex flex-column gap-2 mb-4">
+      {% for u in users %}
+      <div class="d-flex gap-2 align-items-center">
+        <form method="post" action="/users/switch/{{ u.id }}" class="flex-grow-1">
+          <button type="submit"
+                  class="btn w-100 text-start px-4 py-3 fw-semibold
+                         {% if current_user_id == u.id %}btn-dark{% else %}btn-outline-secondary{% endif %}"
+                  style="font-size:1.1rem; border-radius:12px">
+            {{ u.name }}
+            {% if current_user_id == u.id %}
+            <span class="float-end badge bg-secondary fw-normal" style="margin-top:2px">active</span>
+            {% endif %}
+          </button>
+        </form>
+        <form method="post" action="/users/delete/{{ u.id }}"
+              onsubmit="return confirm('Delete account \'{{ u.name|e }}\'?\n\nThis permanently removes all progress, stats, custom lists, and session history for this account.')">
+          <button type="submit" class="btn btn-outline-danger" style="border-radius:12px" title="Delete account">🗑</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+
+    <hr class="my-3">
+    <p class="text-muted small text-center mb-2">Add a new account</p>
+    <form method="post" action="/users/create" class="d-flex gap-2">
+      <input type="text" name="name" class="form-control" placeholder="Account name"
+             maxlength="40" required autocomplete="off" style="border-radius:10px">
+      <button type="submit" class="btn btn-primary px-3" style="border-radius:10px">Add</button>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

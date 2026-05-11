@@ -1,6 +1,6 @@
 # Mandarin Trainer
 
-A local web app for studying Mandarin Chinese vocabulary and grammar. Built with Flask and SQLite, it runs entirely on your machine — no account, no cloud, no subscription.
+A local web app for studying Mandarin Chinese vocabulary and grammar. Built with Flask and SQLite, it runs entirely on your machine — no cloud, no subscription. Supports multiple named user accounts with fully independent progress.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-green)
@@ -113,6 +113,19 @@ All games share a common settings bar (curriculum + HSK level filter) and integr
 </div>
 
 
+### Family Tree
+- Interactive diagram of Chinese family relationships with correct terminology for both sides of the family
+- Click any family member to open a detail panel showing hanzi, pinyin, English, and what they call you in return
+- Gender toggle (male / female perspective) updates all titles across the tree
+- Text-to-speech playback for every term via edge-tts
+- Covers three generations: grandparents, parents and their siblings, your own generation
+
+### Multiple Accounts
+- Support for multiple named user accounts — no passwords required
+- Each account has fully independent SRS progress, session history, stats, map progress, and custom lists
+- Switch accounts from the `/users` picker page at any time; the active account is shown in the navbar
+- Deleting an account permanently removes all its associated data while leaving the shared vocabulary intact
+
 ### LLM Example Sentence Generation *(optional)*
 When [Lemonade](https://github.com/lemonade-sdk/lemonade) is running locally, a **✨ Generate missing examples** button appears on any custom list's word view. It sends words without example sentences to the local LLM and fills them in automatically. The feature is silently unavailable when Lemonade is not running — nothing breaks.
 
@@ -186,9 +199,11 @@ templates/
   custom.html           Custom lists overview
   dictionary.html       Search / add to list
   grammar.html          Grammar library (sidebar + article panel)
+  family.html           Interactive Chinese family relationship tree
   sessions.html         Session history
   session.html          Single session detail
   stats.html            Progress stats & activity calendar
+  users.html            Multi-account picker
 static/
   style.css             Custom styles
 tts_cache/              Cached TTS audio files (auto-created)
