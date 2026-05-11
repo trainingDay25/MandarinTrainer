@@ -18,6 +18,12 @@ Make sure Lemonade is running before starting.
 
 import sqlite3, json, sys, os, io, re
 import requests
+from pypinyin import lazy_pinyin, Style as PinyinStyle
+
+def to_pinyin(text):
+    if not text:
+        return ''
+    return ' '.join(lazy_pinyin(text, style=PinyinStyle.TONE))
 
 if hasattr(sys.stdout, 'buffer'):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -92,15 +98,16 @@ def save_batch(results: list[dict], curriculum: str) -> int:
             ).fetchone()
             if already:
                 continue
+            py = to_pinyin(r['example_hanzi'])
             conn.execute(
-                'INSERT INTO word_examples (word_id, example_hanzi, example_english) VALUES (?, ?, ?)',
-                (r['id'], r['example_hanzi'], r['example_english'])
+                'INSERT INTO word_examples (word_id, example_hanzi, example_pinyin, example_english) VALUES (?, ?, ?, ?)',
+                (r['id'], r['example_hanzi'], py, r['example_english'])
             )
             conn.execute(
-                '''UPDATE words SET example_hanzi = ?, example_english = ?
+                '''UPDATE words SET example_hanzi = ?, example_pinyin = ?, example_english = ?
                    WHERE id = ? AND curriculum = ?
                      AND (example_hanzi IS NULL OR example_hanzi = '')''',
-                (r['example_hanzi'], r['example_english'], r['id'], curriculum)
+                (r['example_hanzi'], py, r['example_english'], r['id'], curriculum)
             )
             saved += 1
     return saved

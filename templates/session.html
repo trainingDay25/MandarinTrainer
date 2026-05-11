@@ -84,7 +84,6 @@
         <span id="countdown-sec">–</span>
         <span style="font-size:.75rem;font-weight:400">seconds</span>
       </div>
-      <a href="/end" class="btn btn-outline-secondary mt-2">End session</a>
     </div>
 
     <!-- ── State: done ── -->
@@ -96,6 +95,11 @@
         <a href="/" class="btn btn-outline-secondary px-4">Back to home</a>
         <button onclick="keepLearning()" class="btn btn-primary px-4">Keep Learning →</button>
       </div>
+    </div>
+
+    <!-- ── End session (always visible below card, hidden when done) ── -->
+    <div id="end-session-bar" class="text-center mt-3 d-none">
+      <a href="/end" class="btn btn-sm btn-outline-secondary">End session</a>
     </div>
 
 </div>
@@ -144,6 +148,7 @@ function showState(name) {
     const el = document.getElementById('state-' + s);
     el.classList.toggle('d-none', s !== name);
   });
+  document.getElementById('end-session-bar').classList.toggle('d-none', name === 'done' || name === 'loading');
   if (name !== 'waiting' && waitTimer) {
     clearInterval(waitTimer);
     waitTimer = null;

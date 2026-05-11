@@ -40,15 +40,14 @@
            class="subnav-link {% if request.path.startswith('/game') %}active{% endif %}">Games</a>
         <a href="{{ '/end?next=/map' if in_session else '/map' }}"
            class="subnav-link {% if request.path.startswith('/map') %}active{% endif %}">Map</a>
+        <a href="{{ '/end?next=/family' if in_session else '/family' }}"
+           class="subnav-link {% if request.path.startswith('/family') %}active{% endif %}">Family</a>
         <a href="{{ '/end?next=/sessions' if in_session else '/sessions' }}"
            class="subnav-link {% if request.path == '/sessions' %}active{% endif %}">Sessions</a>
         <a href="{{ '/end?next=/stats' if in_session else '/stats' }}"
            class="subnav-link {% if request.path == '/stats' %}active{% endif %}">Stats</a>
       </nav>
 
-      {% if in_session %}
-      <a href="/end" class="btn btn-sm btn-outline-danger flex-shrink-0">✕ End Session</a>
-      {% endif %}
 
     </div>
   </header>

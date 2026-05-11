@@ -649,15 +649,19 @@ def start():
     curriculum      = request.form.get('curriculum', 'classic')
     grade_filter    = set(request.form.getlist('grades'))   # e.g. {'new','wrong'}
     include_overdue = request.form.get('include_overdue') == '1'
-    raw_list_id     = request.form.get('list_id', '').strip()
-    list_id         = int(raw_list_id) if raw_list_id.isdigit() else None
+    list_ids        = [int(x) for x in request.form.getlist('list_id') if x.isdigit()]
     sid             = get_sid()
 
     now = now_str()
 
-    if list_id:
-        filter_frag = 'AND w.id IN (SELECT word_id FROM custom_list_words WHERE list_id = ?)'
-        filters     = [list_id]
+    if curriculum == 'custom':
+        if list_ids:
+            ph          = ','.join('?' * len(list_ids))
+            filter_frag = f'AND w.id IN (SELECT word_id FROM custom_list_words WHERE list_id IN ({ph}))'
+            filters     = list_ids
+        else:
+            filter_frag = 'AND w.id IN (SELECT word_id FROM custom_list_words)'
+            filters     = []
     else:
         filters     = [curriculum]
         filter_frag = 'AND w.curriculum = ?'
@@ -713,13 +717,20 @@ def start():
     queue = _shuffle_queue(queue_map)
     save_queue(sid, queue, mode)
 
-    if list_id:
-        with get_db() as conn:
-            lst = conn.execute('SELECT name FROM custom_lists WHERE id = ?', (list_id,)).fetchone()
+    if curriculum == 'custom':
+        if list_ids:
+            with get_db() as conn:
+                ph    = ','.join('?' * len(list_ids))
+                names = [r['name'] for r in conn.execute(
+                    f'SELECT name FROM custom_lists WHERE id IN ({ph}) ORDER BY name',
+                    list_ids
+                ).fetchall()]
+        else:
+            names = []
         selection = json.dumps({
-            'type':      'custom_list',
-            'list_id':   list_id,
-            'list_name': lst['name'] if lst else 'Custom list',
+            'type':       'custom_list',
+            'list_ids':   list_ids,
+            'list_names': names,
         })
     else:
         selection = json.dumps({
@@ -1552,7 +1563,8 @@ def sessions():
         sel = json.loads(log['selection'] or '{}')
 
         if sel.get('type') == 'custom_list':
-            parts = ['Custom: ' + sel.get('list_name', 'Unknown')]
+            names = sel.get('list_names') or ([sel['list_name']] if sel.get('list_name') else [])
+            parts = ['Custom: ' + (', '.join(names) if names else 'All lists')]
         else:
             parts = []
             parts.append(curriculum_labels.get(sel.get('curriculum', 'classic'), sel.get('curriculum', '')))
@@ -2085,6 +2097,11 @@ def api_map_reset():
     with get_db() as conn:
         conn.execute('DELETE FROM map_progress WHERE curriculum=?', (curriculum,))
     return redirect('/map')
+
+
+@app.route('/family')
+def family():
+    return render_template('family.html')
 
 
 if __name__ == '__main__':

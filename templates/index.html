@@ -45,12 +45,17 @@
         {# ── HSK levels or Custom list picker ── #}
         <div class="mb-1">
           {% if curriculum == 'custom' %}
-          <span class="form-section-label d-block mb-2">List</span>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="form-section-label">Lists</span>
+            <div class="small">
+              <a href="#" onclick="selectAllLists(true);return false"  class="text-muted me-2">All</a>
+              <a href="#" onclick="selectAllLists(false);return false" class="text-muted">None</a>
+            </div>
+          </div>
           <div class="d-flex gap-2 flex-wrap">
             {% for cl in custom_lists %}
-            <input type="radio" class="btn-check" name="list_id"
+            <input type="checkbox" class="btn-check list-check" name="list_id"
                    id="list{{ cl.id }}" value="{{ cl.id }}"
-                   {% if loop.first %}checked{% endif %}
                    {% if cl.total == 0 %}disabled{% endif %}>
             <label class="btn btn-sm btn-outline-secondary hsk-chip" for="list{{ cl.id }}">
               {{ cl.name }}
@@ -62,6 +67,7 @@
             </label>
             {% endfor %}
           </div>
+          <div class="form-text mt-2">Leave all unchecked to include every list.</div>
           {% else %}
           <div class="d-flex justify-content-between align-items-center mb-2">
             <span class="form-section-label">HSK Levels</span>
@@ -157,6 +163,9 @@
 <script>
 function selectAllHSK(checked) {
   document.querySelectorAll('.hsk-check:not(:disabled)').forEach(cb => cb.checked = checked);
+}
+function selectAllLists(checked) {
+  document.querySelectorAll('.list-check:not(:disabled)').forEach(cb => cb.checked = checked);
 }
 
 const ST_HINTS = {
