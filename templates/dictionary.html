@@ -61,17 +61,23 @@
           Showing <strong id="shown-count">{{ results|length }}</strong> results for
           "<strong>{{ q }}</strong>" in <em>{{ field_labels.get(field, field) }}</em>
         </span>
+        {% if has_user %}
         <span class="text-muted small" id="sel-hint">Select rows to add to a list</span>
+        {% else %}
+        <a href="/users" class="text-muted small text-decoration-none">Choose an account to add words to a list →</a>
+        {% endif %}
       </div>
       <div class="card border-0 shadow-sm mb-5">
         <div class="table-responsive">
           <table class="table table-hover mb-0 align-middle">
             <thead class="table-light">
               <tr>
+                {% if has_user %}
                 <th style="width:36px">
                   <input type="checkbox" id="select-all" title="Select all"
                          onchange="toggleAll(this.checked)">
                 </th>
+                {% endif %}
                 <th style="min-width:80px">Simplified</th>
                 <th>Traditional</th>
                 <th>Pinyin</th>
@@ -80,11 +86,13 @@
             </thead>
             <tbody id="dict-tbody">
               {% for r in results %}
-              <tr class="dict-row" onclick="toggleRow({{ r.id }})">
+              <tr class="dict-row" {% if has_user %}onclick="toggleRow({{ r.id }})"{% endif %}>
+                {% if has_user %}
                 <td onclick="event.stopPropagation()">
                   <input type="checkbox" class="word-check" data-id="{{ r.id }}"
                          onchange="onCheck({{ r.id }}, this.checked)">
                 </td>
+                {% endif %}
                 <td class="hanzi-cell fs-5">{{ r.simplified }}</td>
                 <td class="text-muted {% if r.traditional == r.simplified %}opacity-25{% endif %}">
                   {{ r.traditional }}
@@ -116,6 +124,7 @@
   </div>
 </div>
 
+{% if has_user %}
 {# Sticky action bar #}
 <div id="action-bar"
      class="position-fixed bottom-0 start-0 end-0 bg-dark text-white shadow-lg d-none"
@@ -131,6 +140,7 @@
     <button class="btn btn-sm btn-outline-light" onclick="clearSelection()">Cancel</button>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -194,11 +204,18 @@ function escHtml(s) {
 
 function buildRow(r) {
   const tradFade = r.traditional === r.simplified ? 'opacity-25' : '';
-  return `<tr class="dict-row" onclick="toggleRow(${r.id})">
-    <td onclick="event.stopPropagation()">
+  {% if has_user %}
+  const cbCell = `<td onclick="event.stopPropagation()">
       <input type="checkbox" class="word-check" data-id="${r.id}"
              onchange="onCheck(${r.id}, this.checked)">
-    </td>
+    </td>`;
+  const rowClick = `onclick="toggleRow(${r.id})"`;
+  {% else %}
+  const cbCell = '';
+  const rowClick = '';
+  {% endif %}
+  return `<tr class="dict-row" ${rowClick}>
+    ${cbCell}
     <td class="hanzi-cell fs-5">${escHtml(r.simplified)}</td>
     <td class="text-muted ${tradFade}">${escHtml(r.traditional)}</td>
     <td class="text-primary">${escHtml(r.pinyin)}</td>

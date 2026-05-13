@@ -479,6 +479,25 @@ def init_db():
             conn.execute('ALTER TABLE custom_lists ADD COLUMN user_id INTEGER DEFAULT 1')
             conn.execute('UPDATE custom_lists SET user_id = 1')
 
+        # Per-user grammar favorites
+        conn.executescript('''
+            CREATE TABLE IF NOT EXISTS grammar_favorites (
+                user_id  INTEGER NOT NULL,
+                point_id TEXT    NOT NULL,
+                PRIMARY KEY (user_id, point_id)
+            );
+        ''')
+        # One-time migration: seed from legacy grammar_points.favorited for trainingDay (id=1)
+        seeded = conn.execute('SELECT COUNT(*) FROM grammar_favorites').fetchone()[0]
+        if seeded == 0:
+            try:
+                conn.execute('''
+                    INSERT OR IGNORE INTO grammar_favorites (user_id, point_id)
+                    SELECT 1, id FROM grammar_points WHERE favorited = 1
+                ''')
+            except sqlite3.OperationalError:
+                pass  # grammar_points table may not exist yet
+
 
 # ── Time helpers ──────────────────────────────────────────────────────────────
 
@@ -1414,48 +1433,68 @@ def words():
 
 @app.route('/grammar')
 def grammar():
+    uid   = get_user_id()
     level = request.args.get('level', 'all')
+    fav_join  = 'LEFT JOIN grammar_favorites gf ON gf.point_id = gp.id AND gf.user_id = ?' if uid else ''
+    fav_col   = 'CASE WHEN gf.point_id IS NOT NULL THEN 1 ELSE 0 END AS favorited' if uid else '0 AS favorited'
+    fav_param = [uid] if uid else []
     with get_db() as conn:
         if level != 'all':
             try:
                 rows = conn.execute(
-                    '''SELECT id, title, hsk_level, used_for, structures, has_detail, favorited
-                       FROM grammar_points WHERE hsk_level = ?
-                       ORDER BY title''', (int(level),)
+                    f'''SELECT gp.id, gp.title, gp.hsk_level, gp.used_for, gp.structures, gp.has_detail, {fav_col}
+                       FROM grammar_points gp {fav_join}
+                       WHERE gp.hsk_level = ?
+                       ORDER BY gp.title''', fav_param + [int(level)]
                 ).fetchall()
             except (ValueError, sqlite3.OperationalError):
                 rows = []
         else:
             try:
                 rows = conn.execute(
-                    '''SELECT id, title, hsk_level, used_for, structures, has_detail, favorited
-                       FROM grammar_points ORDER BY hsk_level, title'''
+                    f'''SELECT gp.id, gp.title, gp.hsk_level, gp.used_for, gp.structures, gp.has_detail, {fav_col}
+                       FROM grammar_points gp {fav_join}
+                       ORDER BY gp.hsk_level, gp.title''', fav_param
                 ).fetchall()
             except sqlite3.OperationalError:
                 rows = []
     return render_template('grammar.html',
                            points=[dict(r) for r in rows],
-                           active_level=level)
+                           active_level=level,
+                           has_user=bool(uid))
 
 
 @app.route('/api/grammar/<asg_id>/favorite', methods=['POST'])
 def api_grammar_favorite(asg_id):
+    uid = get_user_id()
+    if not uid:
+        return jsonify({'error': 'no user selected'}), 401
     with get_db() as conn:
-        row = conn.execute('SELECT favorited FROM grammar_points WHERE id=?', (asg_id,)).fetchone()
-        if not row:
+        if not conn.execute('SELECT id FROM grammar_points WHERE id=?', (asg_id,)).fetchone():
             return jsonify({'error': 'not found'}), 404
-        new_val = 0 if row['favorited'] else 1
-        conn.execute('UPDATE grammar_points SET favorited=? WHERE id=?', (new_val, asg_id))
-        conn.commit()
+        existing = conn.execute(
+            'SELECT 1 FROM grammar_favorites WHERE user_id=? AND point_id=?', (uid, asg_id)
+        ).fetchone()
+        if existing:
+            conn.execute('DELETE FROM grammar_favorites WHERE user_id=? AND point_id=?', (uid, asg_id))
+            new_val = 0
+        else:
+            conn.execute('INSERT INTO grammar_favorites (user_id, point_id) VALUES (?,?)', (uid, asg_id))
+            new_val = 1
     return jsonify({'favorited': new_val})
 
 
 @app.route('/api/grammar/<asg_id>')
 def api_grammar_point(asg_id):
+    uid = get_user_id()
+    fav_col  = 'CASE WHEN gf.point_id IS NOT NULL THEN 1 ELSE 0 END AS favorited' if uid else '0 AS favorited'
+    fav_join = 'LEFT JOIN grammar_favorites gf ON gf.point_id = gp.id AND gf.user_id = ?' if uid else ''
+    fav_param = [uid] if uid else []
     with get_db() as conn:
         point = conn.execute(
-            '''SELECT id, title, hsk_level, url, used_for, structures, detail_html, favorited
-               FROM grammar_points WHERE id = ?''', (asg_id,)
+            f'''SELECT gp.id, gp.title, gp.hsk_level, gp.url, gp.used_for, gp.structures, gp.detail_html, {fav_col}
+               FROM grammar_points gp {fav_join}
+               WHERE gp.id = ?''', fav_param + [asg_id]
         ).fetchone()
         if not point:
             return jsonify({'error': 'not found'}), 404
@@ -1879,7 +1918,8 @@ def dictionary():
         return jsonify({'results': results, 'has_more': has_more})
 
     return render_template('dictionary.html', q=q, field=field, results=results,
-                           has_data=has_data, ready=ready, has_more=has_more)
+                           has_data=has_data, ready=ready, has_more=has_more,
+                           has_user=bool(get_user_id()))
 
 
 @app.route('/custom')

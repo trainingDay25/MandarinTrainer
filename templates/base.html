@@ -26,36 +26,76 @@
         <div class="subheader-sub">普通话练习</div>
       </div>
 
-      {# Current user indicator #}
-      {% if current_user %}
-      <a href="/users" class="flex-shrink-0 text-decoration-none me-1"
-         title="Switch account"
-         style="font-size:.8rem; color: var(--bs-secondary); white-space:nowrap">
-        👤 {{ current_user }}
-      </a>
-      {% endif %}
-
-      {# Nav links — grows to fill available space #}
+      {# Nav dropdowns — grows to fill available space #}
       <nav class="subheader-nav me-auto">
-        <a href="{{ '/end?next=/' if in_session else '/' }}"
-           class="subnav-link {% if request.path == '/' %}active{% endif %}">Study</a>
-        <a href="{{ '/end?next=/words' if in_session else '/words' }}"
-           class="subnav-link {% if request.path.startswith('/words') or request.path.startswith('/custom') %}active{% endif %}">Words</a>
-        <a href="{{ '/end?next=/dictionary' if in_session else '/dictionary' }}"
-           class="subnav-link {% if request.path.startswith('/dictionary') %}active{% endif %}">Dictionary</a>
-        <a href="{{ '/end?next=/grammar' if in_session else '/grammar' }}"
-           class="subnav-link {% if request.path.startswith('/grammar') %}active{% endif %}">Grammar</a>
-        <a href="{{ '/end?next=/game' if in_session else '/game' }}"
-           class="subnav-link {% if request.path.startswith('/game') %}active{% endif %}">Games</a>
-        <a href="{{ '/end?next=/map' if in_session else '/map' }}"
-           class="subnav-link {% if request.path.startswith('/map') %}active{% endif %}">Map</a>
-        <a href="{{ '/end?next=/family' if in_session else '/family' }}"
-           class="subnav-link {% if request.path.startswith('/family') %}active{% endif %}">Family</a>
-        <a href="{{ '/end?next=/sessions' if in_session else '/sessions' }}"
-           class="subnav-link {% if request.path == '/sessions' %}active{% endif %}">Sessions</a>
-        <a href="{{ '/end?next=/stats' if in_session else '/stats' }}"
-           class="subnav-link {% if request.path == '/stats' %}active{% endif %}">Stats</a>
+
+        {# Practice: Study, Games #}
+        {% set _p = request.path %}
+        <div class="dropdown">
+          <button class="subnav-link subnav-drop {% if _p == '/' or _p.startswith('/game') %}active{% endif %}"
+                  data-bs-toggle="dropdown" type="button">
+            Practice
+          </button>
+          <ul class="dropdown-menu subnav-dropdown">
+            <li><a class="dropdown-item {% if _p == '/' %}active{% endif %}"
+                   href="{{ '/end?next=/' if in_session else '/' }}">Study</a></li>
+            <li><a class="dropdown-item {% if _p.startswith('/game') %}active{% endif %}"
+                   href="{{ '/end?next=/game' if in_session else '/game' }}">Games</a></li>
+          </ul>
+        </div>
+
+        {# Reference: Words, Dictionary, Grammar #}
+        <div class="dropdown">
+          <button class="subnav-link subnav-drop {% if _p.startswith('/words') or _p.startswith('/custom') or _p.startswith('/dictionary') or _p.startswith('/grammar') %}active{% endif %}"
+                  data-bs-toggle="dropdown" type="button">
+            Reference
+          </button>
+          <ul class="dropdown-menu subnav-dropdown">
+            <li><a class="dropdown-item {% if _p.startswith('/words') or _p.startswith('/custom') %}active{% endif %}"
+                   href="{{ '/end?next=/words' if in_session else '/words' }}">Words</a></li>
+            <li><a class="dropdown-item {% if _p.startswith('/dictionary') %}active{% endif %}"
+                   href="{{ '/end?next=/dictionary' if in_session else '/dictionary' }}">Dictionary</a></li>
+            <li><a class="dropdown-item {% if _p.startswith('/grammar') %}active{% endif %}"
+                   href="{{ '/end?next=/grammar' if in_session else '/grammar' }}">Grammar</a></li>
+          </ul>
+        </div>
+
+        {# Explore: Map, Family #}
+        <div class="dropdown">
+          <button class="subnav-link subnav-drop {% if _p.startswith('/map') or _p.startswith('/family') %}active{% endif %}"
+                  data-bs-toggle="dropdown" type="button">
+            Explore
+          </button>
+          <ul class="dropdown-menu subnav-dropdown">
+            <li><a class="dropdown-item {% if _p.startswith('/map') %}active{% endif %}"
+                   href="{{ '/end?next=/map' if in_session else '/map' }}">Map</a></li>
+            <li><a class="dropdown-item {% if _p.startswith('/family') %}active{% endif %}"
+                   href="{{ '/end?next=/family' if in_session else '/family' }}">Family</a></li>
+          </ul>
+        </div>
+
+        {# Progress: Sessions, Stats #}
+        <div class="dropdown">
+          <button class="subnav-link subnav-drop {% if _p == '/sessions' or _p == '/stats' %}active{% endif %}"
+                  data-bs-toggle="dropdown" type="button">
+            Progress
+          </button>
+          <ul class="dropdown-menu subnav-dropdown">
+            <li><a class="dropdown-item {% if _p == '/sessions' %}active{% endif %}"
+                   href="{{ '/end?next=/sessions' if in_session else '/sessions' }}">Sessions</a></li>
+            <li><a class="dropdown-item {% if _p == '/stats' %}active{% endif %}"
+                   href="{{ '/end?next=/stats' if in_session else '/stats' }}">Stats</a></li>
+          </ul>
+        </div>
+
       </nav>
+
+      {# Account indicator — always visible, shows active user name #}
+      <a href="/users" class="flex-shrink-0 text-decoration-none
+                              subnav-link {% if request.path == '/users' %}active{% endif %}"
+         title="Switch account">
+        👤 {{ current_user or 'Accounts' }}
+      </a>
 
 
     </div>

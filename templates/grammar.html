@@ -25,7 +25,9 @@
           {{ points|length }} points
         </div>
         <button id="gp-fav-toggle" class="btn btn-xs gp-fav-toggle-btn"
-                onclick="toggleFavFilter()" title="Show favorites only">
+                onclick="toggleFavFilter()"
+                title="{% if has_user %}Show favorites only{% else %}Choose an account first{% endif %}"
+                {% if not has_user %}disabled{% endif %}>
           ☆ Favorites
         </button>
       </div>
@@ -109,7 +111,9 @@
         </div>
         <div class="d-flex gap-2 flex-shrink-0">
           <button id="gp-fav-btn" class="btn btn-sm btn-outline-secondary"
-                  onclick="toggleFavorite()" title="Mark as favorite">☆</button>
+                  onclick="toggleFavorite()"
+                  title="{% if has_user %}Mark as favorite{% else %}Choose an account to use favorites{% endif %}"
+                  {% if not has_user %}disabled{% endif %}>☆</button>
           <a id="gp-allset-link" href="#" target="_blank" rel="noopener"
              class="btn btn-sm btn-outline-secondary">AllSet ↗</a>
         </div>
@@ -134,6 +138,7 @@
 {% block scripts %}
 <script>
 const TOTAL_POINTS  = {{ points|length }};
+const HAS_USER      = {{ 'true' if has_user else 'false' }};
 const userExpanded  = new Set();
 let   ttsAudio      = null;
 let   currentId     = null;
@@ -175,6 +180,7 @@ function toggleLevel(header) {
 // ── Favorites filter ──────────────────────────────────────────────────────────
 
 function toggleFavFilter() {
+  if (!HAS_USER) return;
   favFilterOn = !favFilterOn;
   const btn = document.getElementById('gp-fav-toggle');
   btn.classList.toggle('active', favFilterOn);
@@ -183,7 +189,7 @@ function toggleFavFilter() {
 }
 
 function toggleFavorite() {
-  if (!currentId) return;
+  if (!currentId || !HAS_USER) return;
   fetch(`/api/grammar/${currentId}/favorite`, { method: 'POST' })
     .then(r => r.json())
     .then(data => {

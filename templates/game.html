@@ -23,14 +23,45 @@
   </div>
 </div>
 
-{# ── Tab switcher ── #}
-<div id="game-tab-bar" class="d-flex gap-2 mb-3 flex-wrap">
-  <button id="tab-bingo" class="btn btn-sm btn-primary"           onclick="switchTab('bingo')">🔊 Audio Bingo</button>
-  <button id="tab-tone"  class="btn btn-sm btn-outline-secondary" onclick="switchTab('tone')">🎵 Tone ID</button>
-  <button id="tab-match" class="btn btn-sm btn-outline-secondary" onclick="switchTab('match')">🃏 Match Pairs</button>
-  <button id="tab-mc"    class="btn btn-sm btn-outline-secondary" onclick="switchTab('mc')">📝 Multiple Choice</button>
-  <button id="tab-draw"  class="btn btn-sm btn-outline-secondary" onclick="switchTab('draw')">✍️ Draw Hanzi</button>
-  <button id="tab-scram" class="btn btn-sm btn-outline-secondary" onclick="switchTab('scram')">🔀 Scrambled</button>
+{# ── Game picker grid ── #}
+<div id="game-tab-bar" class="game-picker mb-4">
+
+  <div class="game-tile active" id="tab-bingo" onclick="switchTab('bingo')">
+    <div class="game-tile-icon">🔊</div>
+    <div class="game-tile-name">Audio Bingo</div>
+    <div class="game-tile-desc">Hear a word, find the character on the board</div>
+  </div>
+
+  <div class="game-tile" id="tab-tone" onclick="switchTab('tone')">
+    <div class="game-tile-icon">🎵</div>
+    <div class="game-tile-name">Tone ID</div>
+    <div class="game-tile-desc">Listen and pick the correct tone mark</div>
+  </div>
+
+  <div class="game-tile" id="tab-match" onclick="switchTab('match')">
+    <div class="game-tile-icon">🃏</div>
+    <div class="game-tile-name">Match Pairs</div>
+    <div class="game-tile-desc">Link each hanzi to its English meaning</div>
+  </div>
+
+  <div class="game-tile" id="tab-mc" onclick="switchTab('mc')">
+    <div class="game-tile-icon">📝</div>
+    <div class="game-tile-name">Multiple Choice</div>
+    <div class="game-tile-desc">Pick the right translation from four options</div>
+  </div>
+
+  <div class="game-tile" id="tab-draw" onclick="switchTab('draw')">
+    <div class="game-tile-icon">✍️</div>
+    <div class="game-tile-name">Draw Hanzi</div>
+    <div class="game-tile-desc">Practise stroke order with guided feedback</div>
+  </div>
+
+  <div class="game-tile" id="tab-scram" onclick="switchTab('scram')">
+    <div class="game-tile-icon">🔀</div>
+    <div class="game-tile-name">Scrambled</div>
+    <div class="game-tile-desc">Arrange shuffled characters into a sentence</div>
+  </div>
+
 </div>
 
 {# ── Shared settings bar ── #}
@@ -271,6 +302,39 @@
 </div>
 
 <style>
+/* ── Game picker tiles ── */
+.game-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.game-tile {
+  background: #fff;
+  border: 2px solid #dee2e6;
+  border-radius: 14px;
+  padding: 1rem 0.75rem;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, box-shadow .15s, transform .1s;
+  user-select: none;
+}
+.game-tile:hover {
+  border-color: #0d6efd;
+  box-shadow: 0 3px 14px rgba(13,110,253,.15);
+  transform: translateY(-2px);
+}
+.game-tile.active {
+  border-color: #0d6efd;
+  background: #f0f7ff;
+  box-shadow: 0 3px 16px rgba(13,110,253,.2);
+}
+.game-tile-icon { font-size: 2rem; line-height: 1.2; margin-bottom: .35rem; }
+.game-tile-name { font-size: .9rem; font-weight: 700; color: #1a202c; }
+.game-tile-desc { font-size: .73rem; color: #6c757d; margin-top: .2rem; line-height: 1.35; }
+@media (max-width: 540px) {
+  .game-picker { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* ── Bingo grid ── */
 .bingo-grid {
   display: grid;
@@ -543,8 +607,7 @@ let currentTab = 'bingo';
 function switchTab(tab) {
   currentTab = tab;
   ['bingo','tone','match','mc','draw','scram'].forEach(t => {
-    document.getElementById(`tab-${t}`).className =
-      t === tab ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline-secondary';
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
     document.getElementById(`panel-${t}`).classList.toggle('d-none', t !== tab);
   });
   document.getElementById('g-match-pairs').classList.toggle('d-none', tab !== 'match');

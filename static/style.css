@@ -60,6 +60,30 @@ body {
 .subnav-link:hover  { color: #fff; background: rgba(255,255,255,0.07); }
 .subnav-link.active { color: #fff; background: rgba(90,103,216,0.25); border-bottom-color: #5a67d8; }
 
+/* Dropdown toggle resets */
+.subnav-drop {
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.subnav-drop::after { margin-left: 3px; }
+
+/* Dark dropdown menu */
+.subnav-dropdown {
+  background: #1a202c;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+  min-width: 140px;
+}
+.subnav-dropdown .dropdown-item {
+  color: #a0aec0;
+  font-size: 0.875rem;
+  padding: 7px 16px;
+}
+.subnav-dropdown .dropdown-item:hover,
+.subnav-dropdown .dropdown-item:focus { color: #fff; background: rgba(255,255,255,0.07); }
+.subnav-dropdown .dropdown-item.active { color: #fff; background: rgba(90,103,216,0.25); }
+
 /* ── Stats pills (navbar) ── */
 .stat-pill {
   font-size: 0.72rem;
