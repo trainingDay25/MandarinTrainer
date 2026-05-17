@@ -1,0 +1,375 @@
+{% extends 'base.html' %}
+{% block title %}Import Anki Deck – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-8">
+
+    <h2 class="mb-1 fw-bold">Import Anki Deck</h2>
+    <p class="text-muted mb-4">
+      Upload a <strong>.apkg</strong> file. Map the note fields to Hanzi, Pinyin, English, and
+      (optionally) example sentences, then import as a new custom list.
+    </p>
+
+    {% if not has_user %}
+    <div class="alert alert-warning">
+      Please <a href="/users">select an account</a> before importing.
+    </div>
+    {% else %}
+
+    {# ── Step 1: Upload (hidden on Android when token is prefilled) ───────── #}
+    <div id="step-upload"{% if prefill_data %} class="d-none"{% endif %}>
+      <div class="card border-0 shadow-sm p-4">
+        <h5 class="fw-semibold mb-3">Step 1 — Upload deck</h5>
+        <div id="drop-zone"
+             class="border border-2 border-dashed rounded-3 text-center p-5 mb-3"
+             style="cursor:pointer;border-color:#dee2e6!important"
+             ondragover="event.preventDefault()"
+             ondrop="handleDrop(event)"
+             onclick="document.getElementById('file-input').click()">
+          <div style="font-size:2.5rem">📦</div>
+          <div class="fw-semibold mt-2">Drop .apkg here or click to browse</div>
+          <div class="text-muted small mt-1">Anki 2 packages (.apkg)</div>
+        </div>
+        <input type="file" id="file-input" accept=".apkg" class="d-none"
+               onchange="uploadFile(this.files[0])">
+        <div id="upload-status" class="text-muted small d-none">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+          Uploading and analysing deck…
+        </div>
+        <div id="upload-error" class="alert alert-danger mt-2 d-none"></div>
+      </div>
+    </div>
+
+    {# ── Step 2: Field mapper ──────────────────────────────────────────────── #}
+    <div id="step-map" class="d-none mt-4">
+      <div class="card border-0 shadow-sm p-4">
+        <h5 class="fw-semibold mb-1">Step 2 — Map fields</h5>
+        <p class="text-muted small mb-3">
+          Tell us which field contains which data. Hover the sample rows to preview.
+        </p>
+
+        {# Model selector (shown only if deck has multiple note types) #}
+        <div id="model-selector-wrap" class="mb-3 d-none">
+          <label class="form-label fw-semibold">Note type</label>
+          <select id="model-select" class="form-select" onchange="renderMapper()"></select>
+        </div>
+
+        {# Field mapping rows #}
+        <div id="mapper-rows" class="mb-3"></div>
+
+        {# Sample preview table #}
+        <div id="sample-wrap" class="d-none">
+          <div class="text-muted small fw-semibold mb-1">Sample rows</div>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0" id="sample-table">
+              <thead class="table-light"><tr id="sample-head"></tr></thead>
+              <tbody id="sample-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex align-items-center gap-3">
+          <div class="flex-grow-1">
+            <label class="form-label fw-semibold mb-1" for="list-name-input">List name</label>
+            <input type="text" id="list-name-input" class="form-control"
+                   placeholder="e.g. My Anki Deck">
+          </div>
+          <div class="align-self-end">
+            <button class="btn btn-primary btn-lg" onclick="doImport()">Import →</button>
+          </div>
+        </div>
+        <div id="map-error" class="alert alert-danger mt-2 d-none"></div>
+      </div>
+    </div>
+
+    {# ── Step 3: Done ──────────────────────────────────────────────────────── #}
+    <div id="step-done" class="d-none mt-4">
+      <div class="card border-0 shadow-sm p-4 text-center">
+        <div style="font-size:3rem">🎉</div>
+        <h5 class="fw-semibold mt-2 mb-1">Import complete!</h5>
+        <p id="done-msg" class="text-muted mb-3"></p>
+        <div class="d-flex gap-2 justify-content-center">
+          <a href="/words?list_id=0" id="done-view-link" class="btn btn-outline-secondary">
+            View list
+          </a>
+          <a href="/" class="btn btn-primary">Start studying →</a>
+        </div>
+      </div>
+    </div>
+
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let uploadToken = null;
+let modelsData  = [];
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+
+function handleDrop(ev) {
+  ev.preventDefault();
+  const f = ev.dataTransfer.files[0];
+  if (f) uploadFile(f);
+}
+
+async function uploadFile(file) {
+  if (!file || !file.name.toLowerCase().endsWith('.apkg')) {
+    showError('upload-error', 'Please select a .apkg file.');
+    return;
+  }
+  document.getElementById('upload-status').classList.remove('d-none');
+  document.getElementById('upload-error').classList.add('d-none');
+
+  const fd = new FormData();
+  fd.append('apkg', file);
+
+  try {
+    const res  = await fetch('/anki/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    document.getElementById('upload-status').classList.add('d-none');
+
+    if (!data.ok) {
+      showError('upload-error', data.error || 'Upload failed.');
+      return;
+    }
+
+    uploadToken = data.token;
+    modelsData  = data.models;
+
+    // Suggest list name from filename
+    const nameEl = document.getElementById('list-name-input');
+    if (!nameEl.value) {
+      nameEl.value = file.name.replace(/\.apkg$/i, '').replace(/[_-]+/g, ' ').trim();
+    }
+
+    buildModelSelector(data.models);
+    renderMapper();
+    document.getElementById('step-map').classList.remove('d-none');
+    document.getElementById('step-map').scrollIntoView({ behavior: 'smooth' });
+
+  } catch (e) {
+    document.getElementById('upload-status').classList.add('d-none');
+    showError('upload-error', 'Network error: ' + e.message);
+  }
+}
+
+// ── Model selector ────────────────────────────────────────────────────────────
+
+function buildModelSelector(models) {
+  const wrap = document.getElementById('model-selector-wrap');
+  const sel  = document.getElementById('model-select');
+  sel.innerHTML = '';
+  models.forEach((m, i) => {
+    const o = document.createElement('option');
+    o.value = i;
+    o.textContent = `Note type ${i + 1} (${m.fields.length} fields, first few: ${m.fields.slice(0,3).join(', ')})`;
+    sel.appendChild(o);
+  });
+  wrap.classList.toggle('d-none', models.length <= 1);
+}
+
+function currentModel() {
+  const idx = parseInt(document.getElementById('model-select').value) || 0;
+  return modelsData[idx] || modelsData[0];
+}
+
+// ── Field mapper ──────────────────────────────────────────────────────────────
+
+const ROLE_LABELS = [
+  { key: 'hanzi',           label: 'Hanzi (simplified) *', required: true  },
+  { key: 'pinyin',          label: 'Pinyin',               required: false },
+  { key: 'english',         label: 'English / meaning',    required: false },
+  { key: 'example_hanzi',   label: 'Example sentence',     required: false },
+  { key: 'example_pinyin',  label: 'Example pinyin',       required: false },
+  { key: 'example_english', label: 'Example translation',  required: false },
+];
+
+function renderMapper() {
+  const model  = currentModel();
+  if (!model) return;
+  const fields = model.fields;
+  const rows   = document.getElementById('mapper-rows');
+
+  rows.innerHTML = '';
+  ROLE_LABELS.forEach(role => {
+    const div = document.createElement('div');
+    div.className = 'd-flex align-items-center gap-3 mb-2';
+
+    const lbl = document.createElement('label');
+    lbl.className = 'text-nowrap';
+    lbl.style.minWidth = '190px';
+    lbl.textContent = role.label;
+
+    const sel = document.createElement('select');
+    sel.className = 'form-select form-select-sm';
+    sel.id = 'map-' + role.key;
+    sel.addEventListener('change', renderSamples);
+
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = '— skip —';
+    sel.appendChild(none);
+
+    fields.forEach((fname, fi) => {
+      const o = document.createElement('option');
+      o.value = fi;
+      o.textContent = `[${fi}] ${fname}`;
+      sel.appendChild(o);
+    });
+
+    // Auto-detect common field names
+    autoSelect(sel, fields, role.key);
+
+    div.appendChild(lbl);
+    div.appendChild(sel);
+    rows.appendChild(div);
+  });
+
+  renderSamples();
+}
+
+const AUTO_HINTS = {
+  hanzi:           ['simplified', 'hanzi', '汉字', '简体', 'front', 'word', 'chinese', 'char'],
+  pinyin:          ['pinyin', '拼音', 'pronunciation', 'reading'],
+  english:         ['english', 'meaning', 'definition', 'back', 'translation', 'gloss'],
+  example_hanzi:   ['example', 'sentence', 'example_hanzi', '例句'],
+  example_pinyin:  ['example_pinyin', 'sentence_pinyin'],
+  example_english: ['example_english', 'sentence_english', 'example_translation'],
+};
+
+function autoSelect(sel, fields, roleKey) {
+  const hints = AUTO_HINTS[roleKey] || [];
+  for (let i = 0; i < fields.length; i++) {
+    const fl = fields[i].toLowerCase();
+    if (hints.some(h => fl.includes(h))) {
+      sel.value = i;
+      return;
+    }
+  }
+  // Default: first field → hanzi
+  if (roleKey === 'hanzi' && fields.length > 0) sel.value = 0;
+}
+
+function renderSamples() {
+  const model = currentModel();
+  if (!model || !model.samples.length) return;
+
+  const fields = model.fields;
+  const head   = document.getElementById('sample-head');
+  const body   = document.getElementById('sample-body');
+
+  head.innerHTML = '';
+  body.innerHTML = '';
+
+  // Column headers = field index + name
+  fields.forEach((f, i) => {
+    const th = document.createElement('th');
+    th.textContent = `[${i}] ${f}`;
+    th.style.fontSize = '.75rem';
+    head.appendChild(th);
+  });
+
+  model.samples.forEach(row => {
+    const tr = document.createElement('tr');
+    row.forEach(cell => {
+      const td = document.createElement('td');
+      td.style.fontSize = '.78rem';
+      td.style.maxWidth = '160px';
+      td.style.overflow = 'hidden';
+      td.style.textOverflow = 'ellipsis';
+      td.style.whiteSpace = 'nowrap';
+      td.title = cell;
+      td.textContent = cell || '—';
+      tr.appendChild(td);
+    });
+    body.appendChild(tr);
+  });
+
+  document.getElementById('sample-wrap').classList.remove('d-none');
+}
+
+// ── Import ────────────────────────────────────────────────────────────────────
+
+async function doImport() {
+  const model    = currentModel();
+  const listName = document.getElementById('list-name-input').value.trim();
+  if (!listName) { showError('map-error', 'Please enter a list name.'); return; }
+
+  const hanziVal = document.getElementById('map-hanzi').value;
+  if (hanziVal === '') { showError('map-error', 'Hanzi field mapping is required.'); return; }
+
+  const mapping = {};
+  ROLE_LABELS.forEach(role => {
+    const v = document.getElementById('map-' + role.key).value;
+    if (v !== '') mapping[role.key] = parseInt(v);
+  });
+
+  document.getElementById('map-error').classList.add('d-none');
+  const btn = document.querySelector('#step-map .btn-primary');
+  btn.disabled = true;
+  btn.textContent = 'Importing…';
+
+  try {
+    const res  = await fetch('/anki/import', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        token:     uploadToken,
+        mid:       model.mid,
+        list_name: listName,
+        mapping,
+      }),
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    btn.textContent = 'Import →';
+
+    if (!data.ok) {
+      showError('map-error', data.error || 'Import failed.');
+      return;
+    }
+
+    document.getElementById('done-msg').textContent =
+      `${data.imported} word(s) imported` +
+      (data.skipped ? `, ${data.skipped} skipped (no hanzi)` : '') + '.';
+    document.getElementById('done-view-link').href = '/words?list_id=' + data.list_id;
+    document.getElementById('step-done').classList.remove('d-none');
+    document.getElementById('step-done').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('step-map').classList.add('d-none');
+    document.getElementById('step-upload').classList.add('d-none');
+
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Import →';
+    showError('map-error', 'Network error: ' + e.message);
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.classList.remove('d-none');
+}
+
+// ── Android prefill: skip upload step, render mapper directly ─────────────────
+
+{% if prefill_data %}
+(function() {
+  const data = {{ prefill_data | safe }};
+  uploadToken = data.token;
+  modelsData  = data.models;
+  buildModelSelector(data.models);
+  renderMapper();
+  document.getElementById('step-map').classList.remove('d-none');
+})();
+{% endif %}
+</script>
+{% endblock %}

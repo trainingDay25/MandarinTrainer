@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% block title %}Debug – Example Sentences{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-baseline gap-3 mb-3 flex-wrap">
+  <h5 class="mb-0">Example Sentences</h5>
+  <span class="text-muted small">
+    {{ total_words }} words &nbsp;|&nbsp;
+    {{ total_sentences }} sentences &nbsp;|&nbsp;
+    {% if total_dupes %}
+    <span class="text-warning fw-semibold">⚠ {{ total_dupes }} duplicate rows</span>
+    {% else %}
+    <span class="text-success">no duplicates</span>
+    {% endif %}
+  </span>
+  <a href="/debug/sentences" class="btn btn-sm btn-outline-secondary ms-auto">Clear filters</a>
+</div>
+
+{# ── Filters ── #}
+<form class="row g-2 mb-3" method="get">
+  <div class="col-auto">
+    <select name="curriculum" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">All curricula</option>
+      {% for c in curricula %}
+      <option value="{{ c }}" {% if c == sel_curriculum %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <select name="level" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">All levels</option>
+      {% for l in levels %}
+      <option value="{{ l }}" {% if l|string == sel_level %}selected{% endif %}>HSK {{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col">
+    <input id="search" type="text" class="form-control form-control-sm" placeholder="Search hanzi / sentence / english…" oninput="filterRows(this.value)">
+  </div>
+</form>
+
+{% if not rows %}
+<div class="text-muted">No sentences found for this filter.</div>
+{% else %}
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0" id="sent-table" style="font-size:.82rem">
+      <thead class="table-light">
+        <tr>
+          <th style="width:34px">#</th>
+          <th style="width:60px;cursor:pointer" onclick="sortTable(1)" title="Sort">Cur. <span class="sort-icon text-muted"></span></th>
+          <th style="width:46px;cursor:pointer" onclick="sortTable(2)" title="Sort">HSK <span class="sort-icon text-muted"></span></th>
+          <th style="width:90px;cursor:pointer" onclick="sortTable(3)" title="Sort">Hanzi <span class="sort-icon text-muted"></span></th>
+          <th style="width:110px;cursor:pointer" onclick="sortTable(4)" title="Sort">Pinyin <span class="sort-icon text-muted">↑</span></th>
+          <th style="cursor:pointer" onclick="sortTable(5)" title="Sort">Word meaning <span class="sort-icon text-muted"></span></th>
+          <th>Example (hanzi)</th>
+          <th>Example (english)</th>
+          <th style="width:60px;cursor:pointer" onclick="sortTable(8)" title="Sort">ID <span class="sort-icon text-muted"></span></th>
+          <th style="width:90px;cursor:pointer" onclick="sortTable(9)" title="Sort">Added <span class="sort-icon text-muted"></span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="{% if r.dup_count > 1 %}table-warning{% endif %}"
+            data-search="{{ r.hanzi }}|{{ r.pinyin }}|{{ r.word_english }}|{{ r.example_hanzi }}|{{ r.example_english }}">
+          <td class="text-muted">{{ loop.index }}</td>
+          <td class="text-muted">{{ r.curriculum }}</td>
+          <td class="text-muted">{{ r.hsk_level }}</td>
+          <td style="font-family:'Noto Sans SC',sans-serif;font-size:1.05rem">{{ r.hanzi }}</td>
+          <td>{{ r.pinyin }}</td>
+          <td class="text-truncate" style="max-width:160px" title="{{ r.word_english }}">{{ r.word_english }}</td>
+          <td style="font-family:'Noto Sans SC',sans-serif">
+            {{ r.example_hanzi }}
+            {% if r.dup_count > 1 %}
+            <span class="badge bg-warning text-dark ms-1" title="{{ r.dup_count }} copies of this sentence for this word">×{{ r.dup_count }}</span>
+            {% endif %}
+          </td>
+          <td class="text-truncate" style="max-width:220px" title="{{ r.example_english }}">{{ r.example_english }}</td>
+          <td class="text-muted">{{ r.ex_id }}</td>
+          <td class="text-muted">{{ r.created_at[:10] if r.created_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterRows(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#sent-table tbody tr').forEach(tr => {
+    tr.style.display = !q || tr.dataset.search.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+let _sortCol = 4, _sortAsc = true;
+
+function sortTable(col) {
+  if (_sortCol === col) {
+    _sortAsc = !_sortAsc;
+  } else {
+    _sortCol = col;
+    _sortAsc = true;
+  }
+
+  const tbody = document.querySelector('#sent-table tbody');
+  const rows  = [...tbody.querySelectorAll('tr')];
+  rows.sort((a, b) => {
+    const av = a.cells[col]?.textContent.trim() ?? '';
+    const bv = b.cells[col]?.textContent.trim() ?? '';
+    const n  = parseFloat(av) - parseFloat(bv);
+    const cmp = isNaN(n) ? av.localeCompare(bv) : n;
+    return _sortAsc ? cmp : -cmp;
+  });
+  rows.forEach(r => tbody.appendChild(r));
+
+  // Update sort icons
+  document.querySelectorAll('#sent-table thead .sort-icon').forEach((el, i) => {
+    // thead icons are on cols 1-5,8,9 — map by th index
+    el.textContent = '';
+  });
+  const ths = document.querySelectorAll('#sent-table thead th');
+  const colTh = ths[col];
+  if (colTh) colTh.querySelector('.sort-icon').textContent = _sortAsc ? '↑' : '↓';
+
+  // Re-number visible rows
+  let n = 1;
+  rows.forEach(r => { if (r.style.display !== 'none') r.cells[0].textContent = n++; });
+}
+</script>
+{% endblock %}

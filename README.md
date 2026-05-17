@@ -1,6 +1,6 @@
 # Mandarin Trainer
 
-A local web app for studying Mandarin Chinese vocabulary and grammar. Built with Flask and SQLite, it runs entirely on your machine — no cloud, no subscription. Supports multiple named user accounts with fully independent progress.
+A local web app for studying Mandarin Chinese vocabulary and grammar. Built with Flask and SQLite, it runs entirely on your machine — no account, no cloud, no subscription.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-green)
@@ -51,7 +51,7 @@ A local web app for studying Mandarin Chinese vocabulary and grammar. Built with
 
 <div align="center">
   <img src="screenshots/cedict-example-customlist.png" alt="Word List Example - Adding to custom list" width="700"/>
-  <p><em>Flashcard session with SRS intervals</em></p>
+  <p><em>Dictionary with Custom List addition</em></p>
 </div>
 
 ### Custom Lists
@@ -83,6 +83,11 @@ A local web app for studying Mandarin Chinese vocabulary and grammar. Built with
 - Best score and attempt count shown on hover; progress resets independently per curriculum
 - Decorative pagoda, lantern, and level-seal elements mark level boundaries
 
+<div align="center">
+  <img src="screenshots/Game-Map.png" alt="Game Map" width="700"/>
+  <p><em>Game Map Oview - Locked, Unlocked Stages</em></p>
+</div>
+
 ### Games
 Six mini-games for varied practice, playable freely or directly from the Learning Map:
 
@@ -96,6 +101,21 @@ Six mini-games for varied practice, playable freely or directly from the Learnin
 | 🔀 **Scrambled** | Reassemble a shuffled word or sentence |
 
 All games share a common settings bar (curriculum + HSK level filter) and integrate with the Learning Map progress tracker.
+
+<div align="center">
+  <img src="screenshots/Game-Bingo.png" alt="Game Tone Bingo" width="700"/>
+  <p><em>Game Tone Bingo</em></p>
+</div>
+
+<div align="center">
+  <img src="screenshots/Game-SentenceScramble.png" alt="Game Sentence Scramble" width="700"/>
+  <p><em>Game Sentence Scramble</em></p>
+</div>
+
+<div align="center">
+  <img src="screenshots/Game-DrawHanzi.png" alt="Game Draw Hanzi" width="700"/>
+  <p><em>Game Draw Hanzi (Practice and Test)</em></p>
+</div>
 
 ### Stats & History
 - Activity calendar showing study days over the past 90 days
@@ -112,19 +132,6 @@ All games share a common settings bar (curriculum + HSK level filter) and integr
   <p><em>Session History</em></p>
 </div>
 
-
-### Family Tree
-- Interactive diagram of Chinese family relationships with correct terminology for both sides of the family
-- Click any family member to open a detail panel showing hanzi, pinyin, English, and what they call you in return
-- Gender toggle (male / female perspective) updates all titles across the tree
-- Text-to-speech playback for every term via edge-tts
-- Covers three generations: grandparents, parents and their siblings, your own generation
-
-### Multiple Accounts
-- Support for multiple named user accounts — no passwords required
-- Each account has fully independent SRS progress, session history, stats, map progress, and custom lists
-- Switch accounts from the `/users` picker page at any time; the active account is shown in the navbar
-- Deleting an account permanently removes all its associated data while leaving the shared vocabulary intact
 
 ### LLM Example Sentence Generation *(optional)*
 When [Lemonade](https://github.com/lemonade-sdk/lemonade) is running locally, a **✨ Generate missing examples** button appears on any custom list's word view. It sends words without example sentences to the local LLM and fills them in automatically. The feature is silently unavailable when Lemonade is not running — nothing breaks.
@@ -199,11 +206,9 @@ templates/
   custom.html           Custom lists overview
   dictionary.html       Search / add to list
   grammar.html          Grammar library (sidebar + article panel)
-  family.html           Interactive Chinese family relationship tree
   sessions.html         Session history
   session.html          Single session detail
   stats.html            Progress stats & activity calendar
-  users.html            Multi-account picker
 static/
   style.css             Custom styles
 tts_cache/              Cached TTS audio files (auto-created)
