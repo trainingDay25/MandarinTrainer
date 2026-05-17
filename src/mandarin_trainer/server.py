@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, send_file
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, send_file, g
 import sqlite3
 import os
 import sys
@@ -466,7 +466,6 @@ def init_db():
                 name       TEXT    NOT NULL UNIQUE,
                 created_at TEXT    DEFAULT (datetime('now'))
             );
-            INSERT OR IGNORE INTO users (id, name) VALUES (1, 'trainingDay');
         ''')
 
         # Migrate progress: add user_id, rebuild with composite PK (user_id, word_id)
@@ -657,7 +656,16 @@ def get_sid():
     return session['sid']
 
 def get_user_id():
-    return session.get('user_id')
+    if 'validated_user_id' in g:
+        return g.validated_user_id
+    uid = session.get('user_id')
+    if uid is not None:
+        with get_db() as conn:
+            if not conn.execute('SELECT id FROM users WHERE id = ?', (uid,)).fetchone():
+                session.pop('user_id', None)
+                uid = None
+    g.validated_user_id = uid
+    return uid
 
 def load_queue(sid):
     with get_db() as conn:
@@ -2431,6 +2439,21 @@ def users_switch(user_id):
     session.clear()
     session['user_id'] = user_id
     return redirect('/')
+
+
+@app.route('/users/rename/<int:user_id>', methods=['POST'])
+def users_rename(user_id):
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': 'Name cannot be empty.'})
+    with get_db() as conn:
+        if not conn.execute('SELECT id FROM users WHERE id = ?', (user_id,)).fetchone():
+            return jsonify({'ok': False, 'error': 'User not found.'})
+        if conn.execute('SELECT id FROM users WHERE name = ? AND id != ?', (name, user_id)).fetchone():
+            return jsonify({'ok': False, 'error': f'An account named "{name}" already exists.'})
+        conn.execute('UPDATE users SET name = ? WHERE id = ?', (name, user_id))
+    return jsonify({'ok': True, 'name': name})
 
 
 # ── Progress sync export / import ────────────────────────────────────────────

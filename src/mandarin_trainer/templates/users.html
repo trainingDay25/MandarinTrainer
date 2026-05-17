@@ -10,22 +10,41 @@
 
     <div class="d-flex flex-column gap-2 mb-4">
       {% for u in users %}
-      <div class="d-flex gap-2 align-items-center">
-        <form method="post" action="/users/switch/{{ u.id }}" class="flex-grow-1">
+      <div class="d-flex gap-2 align-items-center flex-wrap" id="urow-{{ u.id }}">
+
+        <!-- Normal view: select button -->
+        <form method="post" action="/users/switch/{{ u.id }}" class="flex-grow-1" id="uswitch-{{ u.id }}">
           <button type="submit"
                   class="btn w-100 text-start px-4 py-3 fw-semibold
                          {% if current_user_id == u.id %}btn-dark{% else %}btn-outline-secondary{% endif %}"
                   style="font-size:1.1rem; border-radius:12px">
-            {{ u.name }}
+            <span id="unamedisp-{{ u.id }}">{{ u.name }}</span>
             {% if current_user_id == u.id %}
             <span class="float-end badge bg-secondary fw-normal" style="margin-top:2px">active</span>
             {% endif %}
           </button>
         </form>
-        <form method="post" action="/users/delete/{{ u.id }}"
+
+        <!-- Rename view (hidden by default) -->
+        <div class="flex-grow-1 d-none" id="urename-{{ u.id }}">
+          <div class="d-flex gap-1">
+            <input type="text" class="form-control" id="unameinput-{{ u.id }}"
+                   value="{{ u.name|e }}" maxlength="40" style="border-radius:10px"
+                   onkeydown="if(event.key==='Enter')submitRename({{ u.id }});else if(event.key==='Escape')cancelRename({{ u.id }})">
+            <button class="btn btn-success px-3" onclick="submitRename({{ u.id }})" style="border-radius:10px" title="Save">✓</button>
+            <button class="btn btn-outline-secondary px-3" onclick="cancelRename({{ u.id }})" style="border-radius:10px" title="Cancel">✗</button>
+          </div>
+          <div class="text-danger small mt-1 d-none" id="uerr-{{ u.id }}"></div>
+        </div>
+
+        <button class="btn btn-outline-secondary" id="upencil-{{ u.id }}"
+                onclick="startRename({{ u.id }})" style="border-radius:12px" title="Rename account">✏</button>
+
+        <form method="post" action="/users/delete/{{ u.id }}" id="udel-{{ u.id }}"
               onsubmit="return window.confirmAction('Delete account \'{{ u.name|e }}\'?\n\nThis permanently removes all progress, stats, custom lists, and session history for this account.', this)">
           <button type="submit" class="btn btn-outline-danger" style="border-radius:12px" title="Delete account">🗑</button>
         </form>
+
       </div>
       {% endfor %}
     </div>
@@ -38,10 +57,10 @@
       <button type="submit" class="btn btn-primary px-3" style="border-radius:10px">Add</button>
     </form>
 
-    {% if current_user_id %}
     <hr class="my-4">
     <p class="text-muted small text-center mb-3">Sync progress between devices</p>
     {% if is_android %}
+    {% if current_user_id %}
     <p class="text-muted text-center mb-2" style="font-size:0.85rem">
       Tap the <strong>⋮ menu</strong> at the top of the screen and choose
       <strong>Export Progress</strong> or <strong>Import Progress</strong>.
@@ -53,19 +72,27 @@
       then tap Import Progress.
     </p>
     {% else %}
+    <p class="text-muted text-center mb-2" style="font-size:0.85rem">
+      Tap the <strong>⋮ menu</strong> at the top of the screen and choose
+      <strong>Import Progress</strong> to restore a previously exported file.
+    </p>
+    {% endif %}
+    {% else %}
     <div class="d-flex gap-2">
+      {% if current_user_id %}
       <a href="/api/sync/export" class="btn btn-outline-secondary flex-grow-1" style="border-radius:10px">
         ⬇ Export progress
       </a>
+      {% endif %}
       <button class="btn btn-outline-secondary flex-grow-1" style="border-radius:10px"
               data-bs-toggle="modal" data-bs-target="#importModal">
         ⬆ Import progress
       </button>
     </div>
     <p class="text-muted text-center mt-2" style="font-size:0.75rem">
-      Export saves your progress to a file. Import replaces your current progress with that file.
+      {% if current_user_id %}Export saves your progress to a file. Import replaces your current progress with that file.
+      {% else %}Import a previously exported file to restore your account and progress.{% endif %}
     </p>
-    {% endif %}
     {% endif %}
 
   </div>
@@ -113,6 +140,44 @@
 
 {% block scripts %}
 <script>
+function startRename(id) {
+  document.getElementById('uswitch-' + id).classList.add('d-none');
+  document.getElementById('urename-' + id).classList.remove('d-none');
+  document.getElementById('upencil-' + id).classList.add('d-none');
+  document.getElementById('udel-'    + id).classList.add('d-none');
+  const inp = document.getElementById('unameinput-' + id);
+  inp.focus();
+  inp.select();
+}
+
+function cancelRename(id) {
+  document.getElementById('uswitch-' + id).classList.remove('d-none');
+  document.getElementById('urename-' + id).classList.add('d-none');
+  document.getElementById('upencil-' + id).classList.remove('d-none');
+  document.getElementById('udel-'    + id).classList.remove('d-none');
+  document.getElementById('uerr-'    + id).classList.add('d-none');
+}
+
+async function submitRename(id) {
+  const inp  = document.getElementById('unameinput-' + id);
+  const errEl = document.getElementById('uerr-' + id);
+  const name = inp.value.trim();
+  if (!name) { errEl.textContent = 'Name cannot be empty.'; errEl.classList.remove('d-none'); return; }
+  const res  = await fetch('/users/rename/' + id, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('unamedisp-' + id).textContent = data.name;
+    cancelRename(id);
+  } else {
+    errEl.textContent = data.error;
+    errEl.classList.remove('d-none');
+  }
+}
+
 document.getElementById('show-paste-link')?.addEventListener('click', e => {
   e.preventDefault();
   document.getElementById('import-file-section').classList.add('d-none');
