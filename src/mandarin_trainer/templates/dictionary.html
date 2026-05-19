@@ -279,8 +279,8 @@ document.getElementById('list-pick').addEventListener('change', function () {
 async function addSelected() {
   const pick    = document.getElementById('list-pick');
   const newName = document.getElementById('new-list-name').value.trim();
-  if (!pick.value)                        { alert('Please choose a list.'); return; }
-  if (pick.value === '__new__' && !newName) { alert('Enter a name for the new list.'); return; }
+  if (!pick.value)                        { showToast('Please choose a list.', 'warning'); return; }
+  if (pick.value === '__new__' && !newName) { showToast('Enter a name for the new list.', 'warning'); return; }
 
   const res  = await fetch('/api/custom-list/add', {
     method:  'POST',
@@ -295,19 +295,23 @@ async function addSelected() {
   if (data.ok) {
     showToast(`${data.added} word(s) added to list`);
     clearSelection();
+    const nameInp = document.getElementById('new-list-name');
+    nameInp.value = '';
+    nameInp.classList.add('d-none');
+    document.getElementById('list-pick').value = '';
     loadLists();
   } else {
-    alert('Error: ' + (data.error || 'Unknown'));
+    showToast('Error: ' + (data.error || 'Unknown'), 'danger');
   }
 }
 
-function showToast(msg) {
+function showToast(msg, type = 'success') {
   const t = document.createElement('div');
-  t.className = 'alert alert-success position-fixed top-0 end-0 m-3 shadow';
+  t.className = `alert alert-${type} position-fixed top-0 end-0 m-3 shadow`;
   t.style.zIndex = '9999';
   t.textContent  = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
+  setTimeout(() => t.remove(), type === 'success' ? 3000 : 4000);
 }
 
 {% if has_data and has_user %}

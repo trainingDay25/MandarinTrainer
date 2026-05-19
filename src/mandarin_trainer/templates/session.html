@@ -178,10 +178,8 @@ function displayPrompt(card) {
   let mode = card.mode;
   if (mode === 'mix') {
     const modes = ['hanzi','pinyin','english'];
-    if (card.cloze_prompt) modes.push('cloze');
     mode = modes[Math.floor(Math.random() * modes.length)];
   }
-  if (mode === 'cloze' && !card.cloze_prompt) mode = 'hanzi';
   card._promptMode = mode;
 
   ['hanzi','pinyin','english','cloze'].forEach(m => {

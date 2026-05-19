@@ -51,7 +51,7 @@ git diff --quiet HEAD origin/!BRANCH! 2>nul
 if errorlevel 1 (
     echo Files in this update:
     echo -----------------------------------------
-    git diff --name-status HEAD origin/!BRANCH!
+    git --no-pager diff --name-status HEAD origin/!BRANCH!
     echo -----------------------------------------
 ) else (
     echo Already up to date. No changes to apply.

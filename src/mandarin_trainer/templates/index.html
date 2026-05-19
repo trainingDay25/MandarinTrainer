@@ -58,18 +58,21 @@
               <a href="#" onclick="selectAllLists(false);return false" class="text-muted">None</a>
             </div>
           </div>
-          <div class="d-flex gap-2 flex-wrap">
+          <div class="custom-list-box">
             {% for cl in custom_lists %}
             <input type="checkbox" class="btn-check list-check" name="list_id"
                    id="list{{ cl.id }}" value="{{ cl.id }}"
                    {% if cl.total == 0 %}disabled{% endif %}>
-            <label class="btn btn-sm btn-outline-secondary hsk-chip" for="list{{ cl.id }}">
-              {{ cl.name }}
-              {% if cl.due_cnt > 0 %}
-              <span class="hsk-dot dot-due"></span>
-              {% elif cl.new_cnt > 0 %}
-              <span class="hsk-dot dot-new"></span>
-              {% endif %}
+            <label class="custom-list-item" for="list{{ cl.id }}">
+              <span class="custom-list-name">{{ cl.name }}</span>
+              <span class="custom-list-meta">
+                {% if cl.due_cnt > 0 %}
+                <span class="cl-badge cl-badge-due">{{ cl.due_cnt }} due</span>
+                {% elif cl.new_cnt > 0 %}
+                <span class="cl-badge cl-badge-new">{{ cl.new_cnt }} new</span>
+                {% endif %}
+                <span class="cl-total">{{ cl.total }}w</span>
+              </span>
             </label>
             {% endfor %}
           </div>
@@ -110,18 +113,23 @@
           <div class="d-flex gap-4 flex-wrap">
             <div class="form-check mb-0">
               <input class="form-check-input" type="radio" name="session_type"
-                     id="st_srs" value="srs" checked onchange="onSessionType()">
-              <label class="form-check-label" for="st_srs">SRS review</label>
+                     id="st_all" value="all" checked onchange="onSessionType()">
+              <label class="form-check-label" for="st_all">All</label>
             </div>
             <div class="form-check mb-0">
               <input class="form-check-input" type="radio" name="session_type"
-                     id="st_drill_wrong" value="drill_wrong" onchange="onSessionType()">
-              <label class="form-check-label" for="st_drill_wrong">Drill wrong &amp; medium</label>
+                     id="st_wrong" value="wrong" onchange="onSessionType()">
+              <label class="form-check-label" for="st_wrong">Wrong</label>
             </div>
             <div class="form-check mb-0">
               <input class="form-check-input" type="radio" name="session_type"
-                     id="st_drill_easy" value="drill_easy" onchange="onSessionType()">
-              <label class="form-check-label" for="st_drill_easy">Drill easy</label>
+                     id="st_medium" value="medium" onchange="onSessionType()">
+              <label class="form-check-label" for="st_medium">Medium</label>
+            </div>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="session_type"
+                     id="st_easy" value="easy" onchange="onSessionType()">
+              <label class="form-check-label" for="st_easy">Easy</label>
             </div>
           </div>
           <div id="st-hint" class="form-text mt-1">Overdue + new words, spaced-repetition order.</div>
@@ -134,13 +142,12 @@
         {# ── Prompt + New words on one row ── #}
         <div class="d-flex align-items-center gap-3 flex-wrap" style="row-gap:0.75rem">
 
-          <span class="form-section-label">Prompt</span>
+          <span class="form-section-label">Show on card</span>
           <select name="mode" class="form-select form-select-sm" style="min-width:130px">
             <option value="mix"     selected>Mix (random)</option>
             <option value="hanzi"  >Hanzi</option>
             <option value="pinyin" >Pinyin</option>
             <option value="english">English</option>
-            <option value="cloze"  >Cloze (fill the blank)</option>
           </select>
 
           <span class="form-section-label ms-3" id="limit-label">New words</span>
@@ -177,14 +184,16 @@ function selectAllLists(checked) {
 }
 
 const ST_HINTS = {
-  srs:         'Overdue + new words, spaced-repetition order.',
-  drill_wrong: 'All wrong & medium words, plus any overdue.',
-  drill_easy:  'All easy words — a relaxed review session.',
+  all:    'Overdue + new words, spaced-repetition order.',
+  wrong:  'All words you last marked as wrong.',
+  medium: 'All words you last marked as medium.',
+  easy:   'All words you last marked as easy.',
 };
 const ST_GRADES = {
-  srs:         [],
-  drill_wrong: ['wrong', 'medium'],
-  drill_easy:  ['easy'],
+  all:    [],
+  wrong:  ['wrong'],
+  medium: ['medium'],
+  easy:   ['easy'],
 };
 
 function onSessionType() {
@@ -200,11 +209,13 @@ function onSessionType() {
     gf.appendChild(inp);
   });
 
+  // include_overdue is never needed: 'all' uses default_mode (Step 1+2),
+  // wrong/medium/easy use the grade filter (Step 3) which has no due-date restriction.
   const od = document.getElementById('include-overdue-h');
-  od.disabled = (type === 'srs');
-  od.value    = (type === 'srs') ? '' : '1';
+  od.disabled = true;
+  od.value    = '';
 
-  const dim = type !== 'srs';
+  const dim = type !== 'all';
   document.getElementById('limit-section').style.opacity = dim ? '0.4' : '1';
   document.getElementById('limit-label').style.opacity   = dim ? '0.4' : '1';
 }
@@ -212,7 +223,7 @@ function onSessionType() {
 function adjustLimit(delta) {
   const inp  = document.getElementById('limit-val');
   const disp = document.getElementById('limit-display');
-  const val  = Math.max(5, Math.min(50, parseInt(inp.value) + delta));
+  const val  = Math.max(5, parseInt(inp.value) + delta);
   inp.value = val;
   disp.textContent = val;
 }

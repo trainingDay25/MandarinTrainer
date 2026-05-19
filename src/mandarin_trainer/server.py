@@ -21,21 +21,22 @@ IS_ANDROID = hasattr(sys, 'getandroidapilevel')
 # Keys are short hex tokens; values are dicts with 'files' and 'read_file'.
 _import_pending = {}
 
-try:
-    import edge_tts
-    _EDGE_TTS_AVAILABLE = True
-except ImportError:
+if IS_ANDROID:
     edge_tts = None          # type: ignore[assignment]
-    _EDGE_TTS_AVAILABLE = False
-
-try:
-    from gtts import gTTS as _gTTS
-    _GTTS_AVAILABLE = True
-except ImportError:
+    try:
+        from gtts import gTTS as _gTTS
+        _TTS_AVAILABLE = True
+    except ImportError:
+        _gTTS = None         # type: ignore[assignment]
+        _TTS_AVAILABLE = False
+else:
     _gTTS = None             # type: ignore[assignment]
-    _GTTS_AVAILABLE = False
-
-_TTS_AVAILABLE = _EDGE_TTS_AVAILABLE or _GTTS_AVAILABLE
+    try:
+        import edge_tts
+        _TTS_AVAILABLE = True
+    except ImportError:
+        edge_tts = None      # type: ignore[assignment]
+        _TTS_AVAILABLE = False
 
 from datetime import datetime, timedelta, date as date_cls
 
@@ -146,8 +147,7 @@ def _resolve_data_dir():
 
 BASE_DIR = os.environ.get('MANDARIN_BASE_DIR') or _resolve_data_dir()
 DB_PATH    = os.path.join(BASE_DIR, 'vocab.db')
-TTS_CACHE    = os.path.join(BASE_DIR, 'tts_cache')
-TTS_PREBUILT = os.path.join(_MODULE_DIR, 'tts_prebuilt')
+TTS_CACHE = os.path.join(BASE_DIR, 'tts_cache')
 os.makedirs(TTS_CACHE, exist_ok=True)
 ANKI_TEMP_DIR = os.path.join(BASE_DIR, 'anki_temp')
 os.makedirs(ANKI_TEMP_DIR, exist_ok=True)
@@ -1834,19 +1834,16 @@ def api_tts():
     text = request.args.get('text', '').strip()
     if not text:
         return ('', 400)
-    filename     = hashlib.md5(text.encode()).hexdigest() + '.mp3'
-    cache_file   = os.path.join(TTS_CACHE,    filename)
-    prebuilt_file = os.path.join(TTS_PREBUILT, filename)
+    filename   = hashlib.md5(text.encode()).hexdigest() + '.mp3'
+    cache_file = os.path.join(TTS_CACHE, filename)
     if os.path.exists(cache_file):
         return send_file(cache_file, mimetype='audio/mpeg')
-    if os.path.exists(prebuilt_file):
-        return send_file(prebuilt_file, mimetype='audio/mpeg')
     if not _TTS_AVAILABLE:
         return ('', 503)
-    if _EDGE_TTS_AVAILABLE:
-        asyncio.run(edge_tts.Communicate(text, voice='zh-CN-XiaoxiaoNeural', rate='-10%').save(cache_file))
-    else:
+    if IS_ANDROID:
         _gTTS(text=text, lang='zh-CN').save(cache_file)
+    else:
+        asyncio.run(edge_tts.Communicate(text, voice='zh-CN-XiaoxiaoNeural', rate='-10%').save(cache_file))
     return send_file(cache_file, mimetype='audio/mpeg')
 
 
@@ -2060,6 +2057,8 @@ def api_custom_list_add():
         else:
             if not list_name:
                 return jsonify({'ok': False, 'error': 'List name required'})
+            if conn.execute('SELECT id FROM custom_lists WHERE name = ? AND user_id = ?', (list_name, uid)).fetchone():
+                return jsonify({'ok': False, 'error': f'A list named "{list_name}" already exists.'})
             cur = conn.execute(
                 'INSERT INTO custom_lists (name, created_at, user_id) VALUES (?, ?, ?)',
                 (list_name, now_str(), uid)
@@ -2623,15 +2622,26 @@ def sync_import():
                     hanzi_to_id[hanzi] = row['id']
 
         # Replace progress
+        # Deduplicate by hanzi first — the same hanzi can appear multiple times in the
+        # export (once per curriculum it belongs to) but the values are always identical
+        # because grading keeps all curricula in sync.  We then insert for ALL word_ids
+        # that share that hanzi so the cross-curriculum mirror state is fully restored.
         conn.execute('DELETE FROM progress WHERE user_id=?', (uid,))
+        seen_hanzi: dict = {}
         for p in data.get('progress', []):
-            wid = hanzi_to_id.get(p['hanzi'])
-            if wid:
+            if p['hanzi'] not in seen_hanzi:
+                seen_hanzi[p['hanzi']] = p
+        for hanzi, p in seen_hanzi.items():
+            all_wids = conn.execute('SELECT id FROM words WHERE hanzi=?', (hanzi,)).fetchall()
+            for row in all_wids:
                 conn.execute('''
                     INSERT OR REPLACE INTO progress (user_id, word_id, interval_step, last_grade, last_seen, due_at)
                     VALUES (?,?,?,?,?,?)
-                ''', (uid, wid, p.get('interval_step', 0), p.get('last_grade'),
+                ''', (uid, row['id'], p.get('interval_step', 0), p.get('last_grade'),
                       p.get('last_seen'), p.get('due_at')))
+            # hanzi_to_id still needs one canonical id for the lookups below
+            if hanzi not in hanzi_to_id and all_wids:
+                hanzi_to_id[hanzi] = all_wids[0]['id']
 
         # Replace custom lists
         old_list_ids = [r[0] for r in conn.execute(

@@ -80,19 +80,21 @@
 {# ── Sub-filter row ── #}
 {% if not list_id %}
   {% if active_curriculum == 'custom' %}
-  {# Custom list sub-buttons #}
-  <div class="d-flex gap-2 flex-wrap mb-3 align-items-center">
+  {# Custom list scrollable picker #}
+  <div class="custom-list-box mb-1">
     <a href="/words?curriculum=custom"
-       class="btn btn-sm {% if not active_custom_list_id %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-      All
+       class="custom-list-link {% if not active_custom_list_id %}active{% endif %}">
+      All lists
     </a>
     {% for cl in custom_lists %}
     <a href="/words?curriculum=custom&list_id={{ cl.id }}"
-       class="btn btn-sm {% if active_custom_list_id == cl.id %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+       class="custom-list-link {% if active_custom_list_id == cl.id %}active{% endif %}">
       {{ cl.name }}
     </a>
     {% endfor %}
-    <a href="/custom" class="ms-auto text-muted small text-decoration-none">Manage lists →</a>
+  </div>
+  <div class="d-flex justify-content-end mb-3">
+    <a href="/custom" class="text-muted small text-decoration-none">Manage lists →</a>
   </div>
   {% else %}
   {# HSK level filter #}

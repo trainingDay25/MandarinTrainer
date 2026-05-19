@@ -291,6 +291,16 @@
   </div>
 </div>
 
+{# Android map-mode audio unlock tap ── shown before initMapMode() on Android #}
+<div id="map-audio-unlock" class="d-none position-fixed top-0 start-0 w-100 h-100
+     d-flex align-items-center justify-content-center" style="z-index:1055;background:rgba(0,0,0,0.55)">
+  <div class="card border-0 shadow-lg text-center p-4" style="border-radius:18px;max-width:260px">
+    <div style="font-size:2.8rem">🔊</div>
+    <div class="fw-bold mt-2 mb-1">Tap to start</div>
+    <div class="text-muted small">Android requires a tap before audio can play</div>
+  </div>
+</div>
+
 {# ══════════════════════════════════════════════════════════════════════════════
    Map mode overlay (inter-game interstitial + final result)
    ══════════════════════════════════════════════════════════════════════════════ #}
@@ -825,6 +835,10 @@ function newGame() {
 // ══════════════════════════════════════════════════════════════════════════════
 // AUDIO BINGO
 // ══════════════════════════════════════════════════════════════════════════════
+// On Android map mode the page loads with no user gesture — gate playback until
+// the user taps the unlock overlay.
+let _audioUnlocked = !(IS_ANDROID && mapMode);
+
 let bingoQueue        = [];
 let bingoTarget       = null;
 let bingoMatched      = 0;
@@ -885,6 +899,7 @@ function bingoNext() {
 }
 
 function bingoPlay() {
+  if (!_audioUnlocked) return;
   if (bingoTarget) playTTS(bingoTarget.hanzi);
 }
 
@@ -1992,6 +2007,23 @@ function initScramTouchReorder() {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 initScramDragDrop();
 initScramTouchReorder();
-if (mapMode) initMapMode();
+if (mapMode) {
+  if (IS_ANDROID) {
+    // Show unlock overlay while game loads in background.
+    // initMapMode() hides the game tab synchronously before its first await,
+    // so the overlay appears over the map UI, not the game tab.
+    const _overlay = document.getElementById('map-audio-unlock');
+    _overlay.classList.remove('d-none');
+    _overlay.addEventListener('click', function () {
+      const _sil = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+      _sil.volume = 0;
+      _sil.play().catch(() => {});
+      _audioUnlocked = true;
+      _overlay.classList.add('d-none');
+      if (bingoTarget) bingoPlay(); // grid already loaded — replay first word
+    }, { once: true });
+  }
+  initMapMode(); // always start immediately; bingoPlay() is gated by _audioUnlocked
+}
 </script>
 {% endblock %}
