@@ -154,10 +154,11 @@
           <div class="d-flex align-items-center gap-2" id="limit-section">
             <button type="button" class="btn btn-sm btn-outline-secondary stepper-btn"
                     onclick="adjustLimit(-5)">−</button>
-            <span id="limit-display" class="fw-semibold text-center stepper-val">20</span>
+            <input type="number" id="limit-val" name="limit" value="20" min="1"
+                   class="form-control form-control-sm text-center stepper-val fw-semibold"
+                   style="width:4rem" oninput="clampLimit()">
             <button type="button" class="btn btn-sm btn-outline-secondary stepper-btn"
                     onclick="adjustLimit(+5)">+</button>
-            <input type="hidden" name="limit" id="limit-val" value="20">
           </div>
 
         </div>
@@ -221,11 +222,13 @@ function onSessionType() {
 }
 
 function adjustLimit(delta) {
-  const inp  = document.getElementById('limit-val');
-  const disp = document.getElementById('limit-display');
-  const val  = Math.max(5, parseInt(inp.value) + delta);
-  inp.value = val;
-  disp.textContent = val;
+  const inp = document.getElementById('limit-val');
+  inp.value = Math.max(1, (parseInt(inp.value) || 0) + delta);
+}
+
+function clampLimit() {
+  const inp = document.getElementById('limit-val');
+  if (inp.value !== '' && parseInt(inp.value) < 1) inp.value = 1;
 }
 </script>
 {% endblock %}

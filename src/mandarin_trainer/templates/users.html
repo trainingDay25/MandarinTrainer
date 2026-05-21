@@ -66,10 +66,8 @@
       <strong>Export Progress</strong> or <strong>Import Progress</strong>.
     </p>
     <p class="text-muted text-center mb-0" style="font-size:0.8rem">
-      To import from another device: export there first, transfer the
-      <code>mandarin_progress_*.json</code> file to this device's
-      <strong>Downloads</strong> folder (via Drive, WhatsApp, email, etc.),
-      then tap Import Progress.
+      To import from another device: export there first (save to Drive, OneDrive,
+      email, etc.), then tap <strong>Import Progress</strong> here and pick the file.
     </p>
     {% else %}
     <p class="text-muted text-center mb-2" style="font-size:0.85rem">
@@ -80,9 +78,9 @@
     {% else %}
     <div class="d-flex gap-2">
       {% if current_user_id %}
-      <a href="/api/sync/export" class="btn btn-outline-secondary flex-grow-1" style="border-radius:10px">
+      <button onclick="exportProgress()" class="btn btn-outline-secondary flex-grow-1" style="border-radius:10px">
         ⬇ Export progress
-      </a>
+      </button>
       {% endif %}
       <button class="btn btn-outline-secondary flex-grow-1" style="border-radius:10px"
               data-bs-toggle="modal" data-bs-target="#importModal">
@@ -221,5 +219,34 @@ document.getElementById('import-confirm-btn').addEventListener('click', async ()
     btn.disabled = false;
   }
 });
+
+async function exportProgress() {
+  try {
+    const resp = await fetch('/api/sync/export_raw');
+    if (!resp.ok) throw new Error('Export failed');
+    const text = await resp.text();
+    const data = JSON.parse(text);
+    const fname = `mandarin_progress_${data.user_name || 'user'}_${new Date().toISOString().slice(0,10)}.json`;
+
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fname,
+        types: [{ description: 'JSON file', accept: { 'application/json': ['.json'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    } else {
+      // Fallback for browsers without showSaveFilePicker
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+      a.download = fname;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') alert('Export failed: ' + e.message);
+  }
+}
 </script>
 {% endblock %}

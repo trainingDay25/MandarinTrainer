@@ -1577,9 +1577,43 @@ def stats():
         return redirect('/users')
     with get_db() as conn:
         # ── 1. Top line numbers ───────────────────────────────────────────────
-        known_total = conn.execute(
-            'SELECT COUNT(*) FROM progress WHERE interval_step >= 6 AND user_id = ?', (uid,)
-        ).fetchone()[0]
+        known_total = conn.execute('''
+            SELECT COUNT(*) FROM (
+                SELECT DISTINCT w.hanzi, w.pinyin
+                FROM progress p JOIN words w ON w.id = p.word_id
+                WHERE p.interval_step >= 6 AND p.user_id = ?
+            )
+        ''', (uid,)).fetchone()[0]
+
+        ws_row = conn.execute('''
+            SELECT COUNT(*)                                                              AS total,
+                   COALESCE(SUM(CASE WHEN interval_step >= 6    THEN 1 ELSE 0 END), 0) AS known,
+                   COALESCE(SUM(CASE WHEN last_grade = 'easy'   THEN 1 ELSE 0 END), 0) AS easy,
+                   COALESCE(SUM(CASE WHEN last_grade = 'medium' THEN 1 ELSE 0 END), 0) AS medium,
+                   COALESCE(SUM(CASE WHEN last_grade = 'wrong'  THEN 1 ELSE 0 END), 0) AS wrong
+            FROM (
+                SELECT MAX(p.interval_step) AS interval_step,
+                       MIN(p.last_grade)    AS last_grade
+                FROM progress p
+                JOIN words w ON w.id = p.word_id
+                WHERE p.user_id = ?
+                GROUP BY w.hanzi, w.pinyin
+            )
+        ''', (uid,)).fetchone()
+        _ws_total        = ws_row['total'] or 1
+        _ws_easy_nk      = max(0, ws_row['easy'] - ws_row['known'])
+        word_state_bars  = {
+            'total':              ws_row['total'],
+            'known':              ws_row['known'],
+            'easy':               ws_row['easy'],
+            'easy_not_known':     _ws_easy_nk,
+            'medium':             ws_row['medium'],
+            'wrong':              ws_row['wrong'],
+            'known_pct':          round(ws_row['known']   / _ws_total * 100),
+            'easy_not_known_pct': round(_ws_easy_nk        / _ws_total * 100),
+            'medium_pct':         round(ws_row['medium']  / _ws_total * 100),
+            'wrong_pct':          round(ws_row['wrong']   / _ws_total * 100),
+        }
 
         totals = conn.execute('''
             SELECT
@@ -1630,20 +1664,22 @@ def stats():
             if curr not in level_stats:
                 continue
             t = r['total']
+            easy_not_known = max(0, r['easy_cnt'] - r['known_cnt'])
             level_stats[curr].append({
-                'level':      r['hsk_level'],
-                'total':      t,
-                'new':        r['new_cnt'],
-                'wrong':      r['wrong_cnt'],
-                'medium':     r['medium_cnt'],
-                'easy':       r['easy_cnt'],
-                'known':      r['known_cnt'],
-                'seen':       t - r['new_cnt'],
-                'new_pct':    round(r['new_cnt']    / t * 100) if t else 0,
-                'wrong_pct':  round(r['wrong_cnt']  / t * 100) if t else 0,
-                'medium_pct': round(r['medium_cnt'] / t * 100) if t else 0,
-                'easy_pct':   round(r['easy_cnt']   / t * 100) if t else 0,
-                'known_pct':  round(r['known_cnt']  / t * 100) if t else 0,
+                'level':              r['hsk_level'],
+                'total':              t,
+                'new':                r['new_cnt'],
+                'wrong':              r['wrong_cnt'],
+                'medium':             r['medium_cnt'],
+                'easy':               r['easy_cnt'],
+                'known':              r['known_cnt'],
+                'easy_not_known':     easy_not_known,
+                'seen':               t - r['new_cnt'],
+                'new_pct':            round(r['new_cnt']        / t * 100) if t else 0,
+                'wrong_pct':          round(r['wrong_cnt']      / t * 100) if t else 0,
+                'medium_pct':         round(r['medium_cnt']     / t * 100) if t else 0,
+                'known_pct':          round(r['known_cnt']      / t * 100) if t else 0,
+                'easy_not_known_pct': round(easy_not_known      / t * 100) if t else 0,
             })
 
         # ── 4. Due forecast ───────────────────────────────────────────────────
@@ -1756,6 +1792,7 @@ def stats():
         map_total_passed  = map_total_passed,
         total_hanzi       = library['total_hanzi'],
         total_examples    = library['total_examples'],
+        word_state_bars   = word_state_bars,
     )
 
 
@@ -1868,9 +1905,11 @@ def end_session():
                 wrong   = int(row['wrong_count']  or 0)
                 new_w   = int(row['new_words']    or 0)
                 total   = easy + medium + wrong
-                if total > 0:
-                    quality  = (easy + 0.5 * medium) / total
-                    new_frac = new_w / total
+                stack   = int(row['stack_size']   or 0)
+                denom   = stack if stack > 0 else total
+                if denom > 0:
+                    quality  = min(1.0, (easy + 0.5 * medium) / denom)
+                    new_frac = min(1.0, new_w / denom)
                     score    = round(quality * (0.65 + 0.35 * new_frac), 4)
                 else:
                     score = 0.0
@@ -2244,18 +2283,6 @@ def reset_progress():
     return redirect(next_url)
 
 
-@app.route('/reset/sessions', methods=['POST'])
-def reset_session_logs():
-    uid = get_user_id()
-    sid = get_sid()
-    with get_db() as conn:
-        if uid:
-            conn.execute('DELETE FROM session_logs WHERE user_id = ?', (uid,))
-            conn.execute('DELETE FROM study_sessions WHERE user_id = ? AND id != ?', (uid, sid))
-        else:
-            conn.execute('DELETE FROM study_sessions WHERE id != ?', (sid,))
-    return redirect('/sessions')
-
 
 @app.route('/map')
 def map_page():
@@ -2624,24 +2651,31 @@ def sync_import():
         # Replace progress
         # Deduplicate by hanzi first — the same hanzi can appear multiple times in the
         # export (once per curriculum it belongs to) but the values are always identical
-        # because grading keeps all curricula in sync.  We then insert for ALL word_ids
-        # that share that hanzi so the cross-curriculum mirror state is fully restored.
+        # because grading keeps all curricula in sync.  Mirror only within classic/hsk3
+        # (the two SRS-synced curricula); anki/custom words are matched by their
+        # specific curriculum via hanzi_to_id so they don't get spurious extra entries.
         conn.execute('DELETE FROM progress WHERE user_id=?', (uid,))
         seen_hanzi: dict = {}
         for p in data.get('progress', []):
             if p['hanzi'] not in seen_hanzi:
                 seen_hanzi[p['hanzi']] = p
         for hanzi, p in seen_hanzi.items():
-            all_wids = conn.execute('SELECT id FROM words WHERE hanzi=?', (hanzi,)).fetchall()
-            for row in all_wids:
+            srs_wids = conn.execute(
+                "SELECT id FROM words WHERE hanzi=? AND curriculum IN ('classic','hsk3')",
+                (hanzi,)
+            ).fetchall()
+            wids = {r['id'] for r in srs_wids}
+            # Also include the curriculum-specific word from hanzi_to_id (covers anki/custom)
+            if hanzi in hanzi_to_id:
+                wids.add(hanzi_to_id[hanzi])
+            for wid in wids:
                 conn.execute('''
                     INSERT OR REPLACE INTO progress (user_id, word_id, interval_step, last_grade, last_seen, due_at)
                     VALUES (?,?,?,?,?,?)
-                ''', (uid, row['id'], p.get('interval_step', 0), p.get('last_grade'),
+                ''', (uid, wid, p.get('interval_step', 0), p.get('last_grade'),
                       p.get('last_seen'), p.get('due_at')))
-            # hanzi_to_id still needs one canonical id for the lookups below
-            if hanzi not in hanzi_to_id and all_wids:
-                hanzi_to_id[hanzi] = all_wids[0]['id']
+            if hanzi not in hanzi_to_id and srs_wids:
+                hanzi_to_id[hanzi] = srs_wids[0]['id']
 
         # Replace custom lists
         old_list_ids = [r[0] for r in conn.execute(

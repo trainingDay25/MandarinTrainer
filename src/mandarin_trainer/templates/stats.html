@@ -60,14 +60,39 @@
     <span><span class="badge bg-warning  me-1">&nbsp;</span>Medium {{ "{:,}".format(total_medium) }}</span>
     <span><span class="badge bg-danger   me-1">&nbsp;</span>Wrong {{ "{:,}".format(total_wrong) }}</span>
   </div>
+
+  <hr class="my-3">
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span class="small fw-semibold text-muted">Current word state</span>
+    <span class="small text-muted">{{ "{:,}".format(word_state_bars.total) }} words studied</span>
+  </div>
+  <div class="progress mb-2 stat-bar" style="height:16px;cursor:default"
+       data-label="All studied words"
+       data-easy="{{ word_state_bars.easy }}" data-medium="{{ word_state_bars.medium }}"
+       data-wrong="{{ word_state_bars.wrong }}" data-new="0"
+       data-known="{{ word_state_bars.known }}"
+       data-seen="{{ word_state_bars.total }}" data-total="{{ word_state_bars.total }}">
+    <div class="progress-bar bg-success"     style="width:{{ word_state_bars.known_pct }}%"></div>
+    <div class="progress-bar bar-easy-progress" style="width:{{ word_state_bars.easy_not_known_pct }}%"></div>
+    <div class="progress-bar" style="width:{{ word_state_bars.medium_pct }}%;background:#fd7e14"></div>
+    <div class="progress-bar bg-danger"      style="width:{{ word_state_bars.wrong_pct }}%"></div>
+  </div>
+  <div class="d-flex gap-4 small text-muted flex-wrap">
+    <span><span style="display:inline-block;width:10px;height:10px;background:#198754;border-radius:2px" class="me-1"></span>Known {{ "{:,}".format(word_state_bars.known) }}</span>
+    <span><span class="legend-hatched me-1"></span>Easy {{ "{:,}".format(word_state_bars.easy_not_known) }}</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#fd7e14;border-radius:2px" class="me-1"></span>Medium {{ "{:,}".format(word_state_bars.medium) }}</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#dc3545;border-radius:2px" class="me-1"></span>Wrong {{ "{:,}".format(word_state_bars.wrong) }}</span>
+  </div>
 </div>
 
 {# ── 3. Progress by level ────────────────────────────────────────────────── #}
 <div class="card border-0 shadow-sm mb-4 p-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h6 class="mb-0">Progress by level</h6>
-    <div class="d-flex gap-3 small text-muted">
-      <span><span style="display:inline-block;width:10px;height:10px;background:#198754;border-radius:2px" class="me-1"></span>Easy</span>
+    <div class="d-flex gap-3 small text-muted flex-wrap">
+      <span><span style="display:inline-block;width:10px;height:10px;background:#198754;border-radius:2px" class="me-1"></span>Known</span>
+      <span><span class="legend-hatched me-1"></span>Easy</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#fd7e14;border-radius:2px" class="me-1"></span>Medium</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#dc3545;border-radius:2px" class="me-1"></span>Wrong</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:#dee2e6;border-radius:2px" class="me-1"></span>New</span>
@@ -80,18 +105,22 @@
   <div class="mb-3">
     <div class="fw-semibold small text-muted mb-2">{{ curr_labels[curr] }}</div>
     {% for lv in level_stats[curr] %}
+    {% set lv_label = 'HSK ' + ('7-9' if (curr == 'hsk3' and lv.level == 7) else lv.level|string) %}
     <div class="d-flex align-items-center gap-2 mb-1">
-      <div class="text-muted small" style="width:42px;flex-shrink:0">HSK {{ '7-9' if (curr == 'hsk3' and lv.level == 7) else lv.level }}</div>
-      <div class="progress flex-grow-1" style="height:16px"
-           title="HSK {{ '7-9' if (curr == 'hsk3' and lv.level == 7) else lv.level }} — Easy {{ lv.easy }} / Medium {{ lv.medium }} / Wrong {{ lv.wrong }} / New {{ lv.new }} — {{ lv.known }} words at ≥1-day interval">
-        <div class="progress-bar bg-success" style="width:{{ lv.easy_pct }}%"></div>
+      <div class="text-muted small" style="width:42px;flex-shrink:0">{{ lv_label }}</div>
+      <div class="progress flex-grow-1 stat-bar" style="height:16px;cursor:default"
+           data-label="{{ lv_label }}"
+           data-easy="{{ lv.easy }}" data-medium="{{ lv.medium }}"
+           data-wrong="{{ lv.wrong }}" data-new="{{ lv.new }}"
+           data-known="{{ lv.known }}" data-seen="{{ lv.seen }}" data-total="{{ lv.total }}">
+        <div class="progress-bar bg-success" style="width:{{ lv.known_pct }}%"></div>
+        <div class="progress-bar bar-easy-progress" style="width:{{ lv.easy_not_known_pct }}%"></div>
         <div class="progress-bar" style="width:{{ lv.medium_pct }}%;background:#fd7e14"></div>
         <div class="progress-bar bg-danger"  style="width:{{ lv.wrong_pct }}%"></div>
         <div class="progress-bar" style="width:{{ lv.new_pct }}%;background:#dee2e6"></div>
       </div>
-      <div class="text-muted small" style="width:110px;flex-shrink:0;text-align:right">
-        {{ lv.seen }}/{{ lv.total }} seen
-        {% if lv.known_pct %}<span class="ms-1 text-success">· {{ lv.known_pct }}% ⭐</span>{% endif %}
+      <div class="text-muted small" style="width:80px;flex-shrink:0;text-align:right">
+        {{ lv.seen }}/{{ lv.total }}
       </div>
     </div>
     {% endfor %}
@@ -229,4 +258,146 @@
   </div>
 </div>
 
+<div id="stat-tip">
+  <div class="tip-title" id="tip-title"></div>
+  <div class="tip-row"><span class="tip-dot" style="background:#198754"></span><span>Known</span><strong id="tip-known"></strong></div>
+  <div class="tip-row"><span class="tip-dot tip-dot-hatched"></span><span>Easy</span><strong id="tip-easy"></strong></div>
+  <div class="tip-row"><span class="tip-dot" style="background:#fd7e14"></span><span>Medium</span><strong id="tip-medium"></strong></div>
+  <div class="tip-row"><span class="tip-dot" style="background:#dc3545"></span><span>Wrong</span><strong id="tip-wrong"></strong></div>
+  <div class="tip-row"><span class="tip-dot" style="background:#dee2e6;border:1px solid #ccc"></span><span>New</span><strong id="tip-new"></strong></div>
+  <div class="tip-divider"></div>
+  <div class="tip-row"><span style="width:9px;display:inline-block"></span><span>Seen</span><strong id="tip-seen"></strong></div>
+</div>
+
+<style>
+.bar-easy-progress {
+  background-image: repeating-linear-gradient(
+    45deg,
+    #198754 0, #198754 4px,
+    #a3cfbb 4px, #a3cfbb 8px
+  ) !important;
+  background-color: transparent !important;
+}
+.legend-hatched {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    #198754 0, #198754 3px,
+    #a3cfbb 3px, #a3cfbb 6px
+  );
+}
+.tip-dot-hatched {
+  background-image: repeating-linear-gradient(
+    45deg,
+    #198754 0, #198754 3px,
+    #a3cfbb 3px, #a3cfbb 6px
+  );
+}
+@keyframes tip-pop {
+  0%   { opacity: 0; transform: scale(0.7);  }
+  55%  { opacity: 1; transform: scale(1.12); }
+  75%  { opacity: 1; transform: scale(0.95); }
+  90%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1);   }
+}
+@keyframes tip-hide {
+  from { opacity: 1; transform: scale(1);    }
+  to   { opacity: 0; transform: scale(0.85); }
+}
+#stat-tip {
+  position: fixed;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.13), 0 1px 4px rgba(0,0,0,0.08);
+  padding: 10px 14px;
+  font-size: 0.8rem;
+  pointer-events: none;
+  z-index: 9999;
+  min-width: 140px;
+  opacity: 0;
+  transform: scale(0.7);
+}
+#stat-tip.visible {
+  animation: tip-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+#stat-tip.hiding {
+  animation: tip-hide 0.12s ease forwards;
+}
+.tip-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 7px;
+  color: #333;
+}
+.tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  color: #555;
+}
+.tip-row span:nth-child(2) { flex: 1; }
+.tip-row strong { color: #222; }
+.tip-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.tip-divider {
+  border-top: 1px solid #eee;
+  margin: 6px 0;
+}
+</style>
+
+<script>
+const tip    = document.getElementById('stat-tip');
+const MARGIN = 14;
+let hideTimer = null;
+
+function showTip(bar, x, y) {
+  clearTimeout(hideTimer);
+  tip.classList.remove('hiding', 'visible');
+  void tip.offsetWidth; // force reflow so animation restarts
+  const easyNotKnown = parseInt(bar.dataset.easy) - parseInt(bar.dataset.known);
+  document.getElementById('tip-title').textContent  = bar.dataset.label;
+  document.getElementById('tip-known').textContent  = bar.dataset.known;
+  document.getElementById('tip-easy').textContent   = easyNotKnown;
+  document.getElementById('tip-medium').textContent = bar.dataset.medium;
+  document.getElementById('tip-wrong').textContent  = bar.dataset.wrong;
+  document.getElementById('tip-new').textContent    = bar.dataset.new;
+  document.getElementById('tip-seen').textContent   = bar.dataset.seen + ' / ' + bar.dataset.total;
+  positionTip(x, y);
+  tip.classList.add('visible');
+}
+
+function positionTip(x, y) {
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let left = x + MARGIN;
+  let top  = y - th / 2;
+  if (left + tw > window.innerWidth  - 8) left = x - tw - MARGIN;
+  if (top  < 8)                           top  = 8;
+  if (top  + th > window.innerHeight - 8) top  = window.innerHeight - th - 8;
+  tip.style.left = left + 'px';
+  tip.style.top  = top  + 'px';
+}
+
+function hideTip() {
+  hideTimer = setTimeout(() => {
+    tip.classList.remove('visible');
+    tip.classList.add('hiding');
+    tip.addEventListener('animationend', () => tip.classList.remove('hiding'), { once: true });
+  }, 60);
+}
+
+document.querySelectorAll('.stat-bar').forEach(bar => {
+  bar.addEventListener('mouseenter', e => showTip(bar, e.clientX, e.clientY));
+  bar.addEventListener('mousemove',  e => positionTip(e.clientX, e.clientY));
+  bar.addEventListener('mouseleave', hideTip);
+});
+</script>
 {% endblock %}

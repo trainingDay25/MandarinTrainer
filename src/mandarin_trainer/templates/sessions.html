@@ -7,13 +7,6 @@
 
     <div class="d-flex justify-content-between align-items-center mb-1">
       <h2 class="fw-bold mb-0">Session History</h2>
-      <form method="post" action="/reset/sessions"
-            onsubmit="return window.confirmAction('Delete all session history?\nThis cannot be undone.', this)">
-        <button type="submit" class="btn btn-sm btn-outline-danger"
-                {% if not entries %}disabled{% endif %}>
-          ✕ Clear history
-        </button>
-      </form>
     </div>
     <p class="text-muted mb-4">Every completed study session, newest first.</p>
 

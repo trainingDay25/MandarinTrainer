@@ -112,7 +112,9 @@ const INTERVALS_LABEL = ['1m','5m','10m','30m','1h','6h','1d','3d','7d','15d','3
 let current       = null;
 let waitTimer     = null;
 let doneSelection = null;
-let graded        = 0;    // cards reviewed this session
+let graded        = 0;    // cards reviewed this session (all attempts)
+let sessionTotal  = 0;    // initial queue size, fixed after first card
+let seenCards     = new Set(); // hanzi seen at least once this session
 
 function keepLearning() {
   const sel  = doneSelection || {};
@@ -191,8 +193,9 @@ function displayPrompt(card) {
   document.getElementById('p-cloze').textContent   = card.cloze_prompt || '';
 
   setBadge('prompt-status', card.status);
-  const total = graded + 1 + card.remaining;
-  document.getElementById('progress-label').textContent = `${graded + 1} / ${total}`;
+  if (sessionTotal === 0) sessionTotal = 1 + card.remaining;
+  if (!seenCards.has(card.hanzi)) seenCards.add(card.hanzi);
+  document.getElementById('progress-label').textContent = `${seenCards.size} / ${sessionTotal}`;
   document.getElementById('wrong-label').textContent  = card.wrong_label;
   document.getElementById('medium-label').textContent = card.medium_label;
   document.getElementById('easy-label').textContent   = card.easy_label;
