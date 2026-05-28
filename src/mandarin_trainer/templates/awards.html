@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% block title %}Awards – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-baseline gap-3 flex-wrap mb-1">
+  <h2 class="fw-bold mb-0">Awards</h2>
+  <span class="text-muted small">{{ total_earned }} / {{ total_awards }} earned</span>
+</div>
+
+{# ── Overall progress bar ── #}
+<div class="progress mb-4" style="height:8px;border-radius:4px">
+  <div class="progress-bar bg-warning"
+       style="width:{{ (total_earned / total_awards * 100)|round|int if total_awards else 0 }}%;border-radius:4px"></div>
+</div>
+
+{% for cat_key in cat_order %}
+{% set cat = categories[cat_key] %}
+{% if cat %}
+<div class="card border-0 shadow-sm mb-4 p-4">
+  <h6 class="fw-bold mb-3 text-muted text-uppercase" style="font-size:0.75rem;letter-spacing:.06em">
+    {{ cat.label }}
+    <span class="ms-2 fw-normal text-muted" style="font-size:0.85rem">
+      {{ cat.awards | selectattr('earned_at') | list | length }} / {{ cat.awards | length }}
+    </span>
+  </h6>
+  <div class="row g-3">
+    {% for aw in cat.awards %}
+    <div class="col-6 col-sm-4 col-md-3">
+      <div class="award-tile {% if aw.earned_at %}earned{% elif aw.progress_pct > 0 %}in-progress{% else %}locked{% endif %}">
+        <div class="award-icon">{{ aw.icon }}</div>
+        <div class="award-title">{{ aw.title }}</div>
+        <div class="award-desc">{{ aw.desc }}</div>
+        {% if aw.earned_at %}
+          <div class="award-date">{{ aw.earned_at }}</div>
+        {% elif aw.progress_pct > 0 %}
+          <div class="award-progress-wrap">
+            <div class="award-progress-bar" style="width:{{ aw.progress_pct }}%"></div>
+          </div>
+          <div class="award-progress-label">{{ aw.progress_label }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+
+<style>
+.award-tile {
+  border-radius: 14px;
+  padding: 14px 12px 12px;
+  text-align: center;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: transform .15s;
+}
+.award-tile.earned {
+  background: linear-gradient(135deg, #fff9e6 0%, #fff3cc 100%);
+  border: 1.5px solid #f0c040;
+  box-shadow: 0 2px 10px rgba(240,192,64,.18);
+}
+.award-tile.locked {
+  background: #f8f9fa;
+  border: 1.5px solid #e9ecef;
+  opacity: .55;
+  filter: grayscale(60%);
+}
+.award-tile.in-progress {
+  background: #f8f9fa;
+  border: 1.5px solid #e9ecef;
+  opacity: .55;
+  filter: grayscale(60%);
+}
+.award-progress-wrap {
+  width: 100%;
+  height: 4px;
+  background: #e9ecef;
+  border-radius: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+.award-progress-bar {
+  height: 100%;
+  background: #f0c040;
+  border-radius: 2px;
+  transition: width .4s ease;
+}
+.award-progress-label {
+  font-size: .65rem;
+  color: #aaa;
+  margin-top: 3px;
+}
+.award-tile.earned:hover { transform: translateY(-2px); }
+.award-icon { font-size: 2rem; line-height: 1; margin-bottom: 4px; }
+.award-title {
+  font-weight: 700;
+  font-size: .82rem;
+  color: #333;
+  line-height: 1.2;
+}
+.award-desc {
+  font-size: .72rem;
+  color: #888;
+  line-height: 1.3;
+}
+.award-date {
+  font-size: .68rem;
+  color: #b08000;
+  margin-top: 4px;
+  font-weight: 600;
+}
+</style>
+{% endblock %}

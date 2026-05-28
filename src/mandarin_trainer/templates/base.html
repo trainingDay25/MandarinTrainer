@@ -84,9 +84,9 @@
           </ul>
         </div>
 
-        {# Progress: Sessions, Stats #}
+        {# Progress: Sessions, Stats, Awards #}
         <div class="dropdown">
-          <button class="subnav-link subnav-drop {% if _p == '/sessions' or _p == '/stats' %}active{% endif %}"
+          <button class="subnav-link subnav-drop {% if _p == '/sessions' or _p == '/stats' or _p == '/awards' %}active{% endif %}"
                   data-bs-toggle="dropdown" type="button">
             Progress
           </button>
@@ -95,6 +95,8 @@
                    href="{{ '/end?next=/sessions' if in_session else '/sessions' }}">Sessions</a></li>
             <li><a class="dropdown-item {% if _p == '/stats' %}active{% endif %}"
                    href="{{ '/end?next=/stats' if in_session else '/stats' }}">Stats</a></li>
+            <li><a class="dropdown-item {% if _p == '/awards' %}active{% endif %}"
+                   href="{{ '/end?next=/awards' if in_session else '/awards' }}">Awards</a></li>
           </ul>
         </div>
 
@@ -155,6 +157,7 @@
       <div class="mobile-nav-section">Progress</div>
       <a href="{{ '/end?next=/sessions' if in_session else '/sessions' }}" class="mobile-nav-link">Sessions</a>
       <a href="{{ '/end?next=/stats' if in_session else '/stats' }}"       class="mobile-nav-link">Stats</a>
+      <a href="{{ '/end?next=/awards' if in_session else '/awards' }}"     class="mobile-nav-link">Awards</a>
 
       <hr class="nav-drawer-divider">
       <a href="/users" class="mobile-nav-link" style="margin-top:4px">Switch account</a>

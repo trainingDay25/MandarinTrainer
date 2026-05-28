@@ -659,6 +659,11 @@ updateHskOptions();
 
 // ── Fetch words from API (or shared map pool) ────────────────────────────────
 async function fetchWords(count) {
+  fetch('/api/game/log', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({game: currentTab}),
+  }).catch(() => {});
   if (mapMode && mapPool.length > 0) {
     // Return a shuffled slice from the shared pool — every game sees same vocab
     const shuffled = [...mapPool].sort(() => Math.random() - .5);

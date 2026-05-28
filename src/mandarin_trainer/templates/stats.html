@@ -5,31 +5,56 @@
 <h4 class="mb-4">Stats &amp; Progress</h4>
 
 {# ── 1. Top line numbers ─────────────────────────────────────────────────── #}
-<div class="row g-3 mb-4">
-  <div class="col-sm-4">
+{% set tile_col = 'col-4' if is_android else 'col-sm-4' %}
+{% set tile_num_size = '1.35rem' if is_android else '2rem' %}
+{% set tile_emoji_size = '1.35rem' if is_android else '2rem' %}
+<div class="row g-2 mb-4">
+  <div class="{{ tile_col }}">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div style="font-size:2rem">🔥</div>
-      <div style="font-size:2rem;font-weight:700;line-height:1.1">{{ streak }}</div>
+      <div style="font-size:{{ tile_emoji_size }}">🔥</div>
+      <div style="font-size:{{ tile_num_size }};font-weight:700;line-height:1.1">{{ streak }}</div>
       <div class="text-muted small mt-1">day streak</div>
     </div>
   </div>
-  <div class="col-sm-4">
+  <div class="{{ tile_col }}">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div style="font-size:2rem">📋</div>
-      <div style="font-size:2rem;font-weight:700;line-height:1.1">{{ "{:,}".format(total_reviews) }}</div>
+      <div style="font-size:{{ tile_emoji_size }}">📋</div>
+      <div style="font-size:{{ tile_num_size }};font-weight:700;line-height:1.1">{{ "{:,}".format(total_reviews) }}</div>
       <div class="text-muted small mt-1">total reviews</div>
     </div>
   </div>
-  <div class="col-sm-4">
+  <div class="{{ tile_col }}">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div style="font-size:2rem">⭐</div>
-      <div style="font-size:2rem;font-weight:700;line-height:1.1">{{ "{:,}".format(known_total) }}</div>
-      <div class="text-muted small mt-1">words known <span class="text-muted" style="font-size:.75rem">(≥ 1-day interval)</span></div>
+      <div style="font-size:{{ tile_emoji_size }}">⭐</div>
+      <div style="font-size:{{ tile_num_size }};font-weight:700;line-height:1.1">{{ "{:,}".format(known_total) }}</div>
+      <div class="text-muted small mt-1">{% if is_android %}known{% else %}words known <span class="text-muted" style="font-size:.75rem">(≥ 1-day interval)</span>{% endif %}</div>
     </div>
   </div>
 </div>
 
-{# ── 1b. Library size ────────────────────────────────────────────────────── #}
+{# ── 1b. Recent awards ───────────────────────────────────────────────────── #}
+{% if earned_award_sample %}
+<div class="card border-0 shadow-sm mb-4 p-3">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <span class="fw-bold small text-muted text-uppercase" style="letter-spacing:.06em">🏆 Awards</span>
+    <a href="/awards" class="small text-decoration-none" style="color:#b08000">See all →</a>
+  </div>
+  <div class="d-flex gap-3 flex-wrap">
+    {% for aw in earned_award_sample %}
+    <div class="d-flex align-items-center gap-2 px-3 py-2 rounded-3"
+         style="background:linear-gradient(135deg,#fff9e6 0%,#fff3cc 100%);border:1.5px solid #f0c040;flex:1;min-width:120px">
+      <span style="font-size:1.5rem;line-height:1">{{ aw.icon }}</span>
+      <div>
+        <div class="fw-bold" style="font-size:.78rem;color:#333;line-height:1.2">{{ aw.title }}</div>
+        <div style="font-size:.67rem;color:#888;line-height:1.3">{{ aw.desc }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── 1d. Library size ────────────────────────────────────────────────────── #}
 <div class="card border-0 shadow-sm mb-4 p-3">
   <div class="d-flex align-items-center gap-3 flex-wrap">
     <span style="font-size:1.3rem">📚</span>

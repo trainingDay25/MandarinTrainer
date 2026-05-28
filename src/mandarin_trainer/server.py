@@ -512,6 +512,11 @@ def init_db():
                 ALTER TABLE map_progress_new RENAME TO map_progress;
             ''')
 
+        # Migrate map_progress: add passed_at column
+        if 'passed_at' not in map_cols:
+            conn.execute("ALTER TABLE map_progress ADD COLUMN passed_at TEXT")
+            conn.execute("UPDATE map_progress SET passed_at = last_at WHERE passed = 1")
+
         # Migrate session_logs: add user_id column
         sl_cols = {r[1] for r in conn.execute('PRAGMA table_info(session_logs)').fetchall()}
         if 'user_id' not in sl_cols:
@@ -532,6 +537,22 @@ def init_db():
                 PRIMARY KEY (user_id, point_id)
             );
         ''')
+        # Awards and game-play tracking
+        conn.executescript('''
+            CREATE TABLE IF NOT EXISTS user_awards (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                award_key  TEXT    NOT NULL,
+                awarded_at TEXT,
+                UNIQUE (user_id, award_key)
+            );
+            CREATE TABLE IF NOT EXISTS game_plays (
+                user_id   INTEGER NOT NULL,
+                game_type TEXT    NOT NULL,
+                PRIMARY KEY (user_id, game_type)
+            );
+        ''')
+
         # One-time migration: seed from legacy grammar_points.favorited for trainingDay (id=1)
         seeded = conn.execute('SELECT COUNT(*) FROM grammar_favorites').fetchone()[0]
         if seeded == 0:
@@ -551,6 +572,213 @@ def now_str():
 
 def future_str(minutes):
     return (datetime.now() + timedelta(minutes=minutes)).isoformat()
+
+
+# ── Awards ────────────────────────────────────────────────────────────────────
+
+AWARDS = [
+    # ── Flashcard reviews ──
+    {'cat': 'flashcard', 'key': 'reviews_50',    'icon': '🃏', 'title': 'Getting Started',   'desc': 'Review 50 flashcards',        'threshold': 50},
+    {'cat': 'flashcard', 'key': 'reviews_100',   'icon': '🃏', 'title': 'Committed',          'desc': 'Review 100 flashcards',       'threshold': 100},
+    {'cat': 'flashcard', 'key': 'reviews_500',   'icon': '📖', 'title': 'On a Roll',          'desc': 'Review 500 flashcards',       'threshold': 500},
+    {'cat': 'flashcard', 'key': 'reviews_1k',    'icon': '📚', 'title': 'Enthusiast',         'desc': 'Review 1,000 flashcards',     'threshold': 1000},
+    {'cat': 'flashcard', 'key': 'reviews_5k',    'icon': '📚', 'title': 'Dedicated',          'desc': 'Review 5,000 flashcards',     'threshold': 5000},
+    {'cat': 'flashcard', 'key': 'reviews_10k',   'icon': '🎓', 'title': 'Scholar',            'desc': 'Review 10,000 flashcards',    'threshold': 10000},
+    {'cat': 'flashcard', 'key': 'reviews_50k',   'icon': '🏆', 'title': 'Master',             'desc': 'Review 50,000 flashcards',    'threshold': 50000},
+    {'cat': 'flashcard', 'key': 'reviews_100k',  'icon': '👑', 'title': 'Legend',             'desc': 'Review 100,000 flashcards',   'threshold': 100000},
+    # ── Words learned ──
+    {'cat': 'words',     'key': 'words_10',      'icon': '✨', 'title': 'First Steps',        'desc': 'Learn 10 words',              'threshold': 10},
+    {'cat': 'words',     'key': 'words_100',     'icon': '💯', 'title': 'Century',            'desc': 'Learn 100 words',             'threshold': 100},
+    {'cat': 'words',     'key': 'words_500',     'icon': '🧱', 'title': 'Building Blocks',    'desc': 'Learn 500 words',             'threshold': 500},
+    {'cat': 'words',     'key': 'words_1k',      'icon': '🏅', 'title': 'Milestone',          'desc': 'Learn 1,000 words',           'threshold': 1000},
+    {'cat': 'words',     'key': 'words_5k',      'icon': '🌟', 'title': 'Fluency in Sight',   'desc': 'Learn 5,000 words',           'threshold': 5000},
+    {'cat': 'words',     'key': 'words_10k',     'icon': '🎖', 'title': 'Linguist',           'desc': 'Learn 10,000 words',          'threshold': 10000},
+    # ── Day streaks ──
+    {'cat': 'streak',    'key': 'streak_5',      'icon': '🔥', 'title': 'Warming Up',         'desc': '5-day study streak',          'threshold': 5},
+    {'cat': 'streak',    'key': 'streak_10',     'icon': '🔥', 'title': 'On Fire',            'desc': '10-day study streak',         'threshold': 10},
+    {'cat': 'streak',    'key': 'streak_50',     'icon': '🔥', 'title': 'Unstoppable',        'desc': '50-day study streak',         'threshold': 50},
+    {'cat': 'streak',    'key': 'streak_100',    'icon': '💥', 'title': 'Century Streak',     'desc': '100-day study streak',        'threshold': 100},
+    {'cat': 'streak',    'key': 'streak_365',    'icon': '🌈', 'title': 'Year of Study',      'desc': '365-day study streak',        'threshold': 365},
+    # ── Map ──
+    {'cat': 'map',       'key': 'map_circle_1',  'icon': '🗺', 'title': 'First Circle',       'desc': 'Complete your first map circle'},
+    {'cat': 'map',       'key': 'map_skip',      'icon': '⚡', 'title': 'Fast Lane',          'desc': 'Pass circle 20 to unlock all circles of a level at once'},
+    {'cat': 'map',       'key': 'map_level_done','icon': '🏆', 'title': 'Level Master',       'desc': 'Complete all 20 circles of any level'},
+    {'cat': 'map',       'key': 'map_classic',   'icon': '🎓', 'title': 'Classic HSK Complete','desc': 'Complete all Classic HSK levels on the map'},
+    {'cat': 'map',       'key': 'map_hsk3',      'icon': '🎓', 'title': 'New HSK 3.0 Complete','desc': 'Complete all New HSK 3.0 levels on the map'},
+    # ── Misc / event ──
+    {'cat': 'misc',      'key': 'first_user',    'icon': '👋', 'title': 'Welcome!',           'desc': 'Create your first user account'},
+    {'cat': 'misc',      'key': 'custom_list',   'icon': '📝', 'title': 'Curator',            'desc': 'Create a custom list and add at least one word'},
+    {'cat': 'misc',      'key': 'exported',      'icon': '💾', 'title': 'Backed Up',          'desc': 'Export your progress'},
+    {'cat': 'misc',      'key': 'imported',      'icon': '📥', 'title': 'Fresh Start',        'desc': 'Import progress from a file'},
+    {'cat': 'misc',      'key': 'anki_imported', 'icon': '📦', 'title': 'Deck Builder',       'desc': 'Import an Anki deck'},
+    {'cat': 'misc',      'key': 'grammar_fav',   'icon': '📖', 'title': 'Grammar Nerd',       'desc': 'Add a grammar lesson to favourites'},
+    {'cat': 'misc',      'key': 'all_games',     'icon': '🎮', 'title': 'Game On',            'desc': 'Play all 6 games at least once'},
+    # ── Level mastery — Classic HSK ──
+    {'cat': 'mastery',   'key': 'known_classic_1','icon': '⭐', 'title': 'HSK 1 Complete',    'desc': 'Know all Classic HSK 1 words'},
+    {'cat': 'mastery',   'key': 'known_classic_2','icon': '⭐', 'title': 'HSK 2 Complete',    'desc': 'Know all Classic HSK 2 words'},
+    {'cat': 'mastery',   'key': 'known_classic_3','icon': '⭐', 'title': 'HSK 3 Complete',    'desc': 'Know all Classic HSK 3 words'},
+    {'cat': 'mastery',   'key': 'known_classic_4','icon': '🌟', 'title': 'HSK 4 Complete',    'desc': 'Know all Classic HSK 4 words'},
+    {'cat': 'mastery',   'key': 'known_classic_5','icon': '🌟', 'title': 'HSK 5 Complete',    'desc': 'Know all Classic HSK 5 words'},
+    {'cat': 'mastery',   'key': 'known_classic_6','icon': '👑', 'title': 'HSK 6 Complete',    'desc': 'Know all Classic HSK 6 words'},
+    # ── Level mastery — New HSK 3.0 ──
+    {'cat': 'mastery',   'key': 'known_hsk3_1',  'icon': '⭐', 'title': 'New HSK 1 Complete', 'desc': 'Know all New HSK 3.0 Level 1 words'},
+    {'cat': 'mastery',   'key': 'known_hsk3_2',  'icon': '⭐', 'title': 'New HSK 2 Complete', 'desc': 'Know all New HSK 3.0 Level 2 words'},
+    {'cat': 'mastery',   'key': 'known_hsk3_3',  'icon': '⭐', 'title': 'New HSK 3 Complete', 'desc': 'Know all New HSK 3.0 Level 3 words'},
+    {'cat': 'mastery',   'key': 'known_hsk3_4',  'icon': '🌟', 'title': 'New HSK 4 Complete', 'desc': 'Know all New HSK 3.0 Level 4 words'},
+    {'cat': 'mastery',   'key': 'known_hsk3_5',  'icon': '🌟', 'title': 'New HSK 5 Complete', 'desc': 'Know all New HSK 3.0 Level 5 words'},
+    {'cat': 'mastery',   'key': 'known_hsk3_6',  'icon': '🌟', 'title': 'New HSK 6 Complete', 'desc': 'Know all New HSK 3.0 Level 6 words'},
+    {'cat': 'mastery',   'key': 'known_hsk3_7',  'icon': '👑', 'title': 'New HSK 7-9 Complete','desc': 'Know all New HSK 3.0 Level 7-9 words'},
+]
+
+AWARD_KEYS = {a['key'] for a in AWARDS}
+ALL_GAME_TYPES = {'bingo', 'tone', 'match', 'mc', 'draw', 'scram'}
+
+
+def grant_award(conn, uid, key):
+    if key not in AWARD_KEYS:
+        return
+    conn.execute(
+        'INSERT OR IGNORE INTO user_awards (user_id, award_key, awarded_at) VALUES (?, ?, ?)',
+        (uid, key, now_str())
+    )
+
+
+def check_lazy_awards(conn, uid):
+    """Check all milestone awards and grant any not yet earned. Called on awards page load."""
+    from datetime import date as date_cls
+
+    # ── Reviews ──────────────────────────────────────────────────────────────
+    total_reviews = conn.execute('''
+        SELECT COALESCE(SUM(CAST(easy_count AS INTEGER) +
+                            CAST(medium_count AS INTEGER) +
+                            CAST(wrong_count  AS INTEGER)), 0)
+        FROM session_logs WHERE user_id = ?
+    ''', (uid,)).fetchone()[0]
+    for threshold, key in [
+        (50,'reviews_50'),(100,'reviews_100'),(500,'reviews_500'),
+        (1000,'reviews_1k'),(5000,'reviews_5k'),(10000,'reviews_10k'),
+        (50000,'reviews_50k'),(100000,'reviews_100k'),
+    ]:
+        if total_reviews >= threshold:
+            grant_award(conn, uid, key)
+
+    # ── Words known ───────────────────────────────────────────────────────────
+    known = conn.execute('''
+        SELECT COUNT(*) FROM (
+            SELECT DISTINCT w.hanzi, w.pinyin
+            FROM progress p JOIN words w ON w.id = p.word_id
+            WHERE p.interval_step >= 6 AND p.user_id = ?
+        )
+    ''', (uid,)).fetchone()[0]
+    for threshold, key in [
+        (10,'words_10'),(100,'words_100'),(500,'words_500'),
+        (1000,'words_1k'),(5000,'words_5k'),(10000,'words_10k'),
+    ]:
+        if known >= threshold:
+            grant_award(conn, uid, key)
+
+    # ── Streak ────────────────────────────────────────────────────────────────
+    date_rows = conn.execute('''
+        SELECT DISTINCT DATE(d) AS d FROM (
+            SELECT started_at AS d FROM session_logs WHERE user_id = ?
+            UNION
+            SELECT passed_at  AS d FROM map_progress
+            WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
+        ) ORDER BY d DESC
+    ''', (uid, uid)).fetchall()
+    streak = 0
+    if date_rows:
+        most_recent = date_cls.fromisoformat(date_rows[0]['d'])
+        today = date_cls.today()
+        if (today - most_recent).days <= 1:
+            for i, row in enumerate(date_rows):
+                if date_cls.fromisoformat(row['d']) == most_recent - __import__('datetime').timedelta(days=i):
+                    streak += 1
+                else:
+                    break
+    for threshold, key in [
+        (5,'streak_5'),(10,'streak_10'),(50,'streak_50'),
+        (100,'streak_100'),(365,'streak_365'),
+    ]:
+        if streak >= threshold:
+            grant_award(conn, uid, key)
+
+    # ── Map: first circle ─────────────────────────────────────────────────────
+    any_circle = conn.execute(
+        'SELECT 1 FROM map_progress WHERE user_id = ? AND passed = 1 LIMIT 1', (uid,)
+    ).fetchone()
+    if any_circle:
+        grant_award(conn, uid, 'map_circle_1')
+
+    # ── Map: all 20 circles of any level ─────────────────────────────────────
+    level_done = conn.execute('''
+        SELECT curriculum, level FROM map_progress
+        WHERE user_id = ? AND passed = 1
+        GROUP BY curriculum, level
+        HAVING COUNT(*) = 20
+        LIMIT 1
+    ''', (uid,)).fetchone()
+    if level_done:
+        grant_award(conn, uid, 'map_level_done')
+
+    # ── Map: all classic HSK levels complete ──────────────────────────────────
+    classic_levels = conn.execute(
+        "SELECT DISTINCT hsk_level FROM words WHERE curriculum = 'classic' ORDER BY hsk_level"
+    ).fetchall()
+    if classic_levels:
+        classic_done = all(
+            conn.execute('''
+                SELECT COUNT(*) FROM map_progress
+                WHERE user_id=? AND curriculum='classic' AND level=? AND passed=1
+            ''', (uid, r[0])).fetchone()[0] == 20
+            for r in classic_levels
+        )
+        if classic_done:
+            grant_award(conn, uid, 'map_classic')
+
+    # ── Map: all HSK3.0 levels complete ──────────────────────────────────────
+    hsk3_levels = conn.execute(
+        "SELECT DISTINCT hsk_level FROM words WHERE curriculum = 'hsk3' ORDER BY hsk_level"
+    ).fetchall()
+    if hsk3_levels:
+        hsk3_done = all(
+            conn.execute('''
+                SELECT COUNT(*) FROM map_progress
+                WHERE user_id=? AND curriculum='hsk3' AND level=? AND passed=1
+            ''', (uid, r[0])).fetchone()[0] == 20
+            for r in hsk3_levels
+        )
+        if hsk3_done:
+            grant_award(conn, uid, 'map_hsk3')
+
+    # ── All games played ──────────────────────────────────────────────────────
+    played = {r[0] for r in conn.execute(
+        'SELECT game_type FROM game_plays WHERE user_id = ?', (uid,)
+    ).fetchall()}
+    if played >= ALL_GAME_TYPES:
+        grant_award(conn, uid, 'all_games')
+
+    # ── Level mastery ─────────────────────────────────────────────────────────
+    mastery_map = {
+        'classic': [(1,'known_classic_1'),(2,'known_classic_2'),(3,'known_classic_3'),
+                    (4,'known_classic_4'),(5,'known_classic_5'),(6,'known_classic_6')],
+        'hsk3':    [(1,'known_hsk3_1'),(2,'known_hsk3_2'),(3,'known_hsk3_3'),
+                    (4,'known_hsk3_4'),(5,'known_hsk3_5'),(6,'known_hsk3_6'),(7,'known_hsk3_7')],
+    }
+    for curr, levels in mastery_map.items():
+        for lvl, key in levels:
+            total_in_level = conn.execute(
+                'SELECT COUNT(*) FROM words WHERE curriculum=? AND hsk_level=?', (curr, lvl)
+            ).fetchone()[0]
+            if total_in_level == 0:
+                continue
+            known_in_level = conn.execute('''
+                SELECT COUNT(DISTINCT w.hanzi || '|' || w.pinyin)
+                FROM progress p JOIN words w ON w.id = p.word_id
+                WHERE p.user_id=? AND w.curriculum=? AND w.hsk_level=? AND p.interval_step >= 6
+            ''', (uid, curr, lvl)).fetchone()[0]
+            if known_in_level >= total_in_level:
+                grant_award(conn, uid, key)
 
 
 _CURR_LABELS = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'}
@@ -1335,6 +1563,22 @@ def game():
                            level_counts_json=json.dumps(level_counts))
 
 
+@app.route('/api/game/log', methods=['POST'])
+def api_game_log():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({'ok': False})
+    game_type = (request.json or {}).get('game')
+    if game_type not in ALL_GAME_TYPES:
+        return jsonify({'ok': False})
+    with get_db() as conn:
+        conn.execute(
+            'INSERT OR IGNORE INTO game_plays (user_id, game_type) VALUES (?, ?)',
+            (uid, game_type)
+        )
+    return jsonify({'ok': True})
+
+
 @app.route('/api/game/words')
 def api_game_words():
     curriculum = request.args.get('curriculum', 'classic')
@@ -1541,6 +1785,7 @@ def api_grammar_favorite(asg_id):
             new_val = 0
         else:
             conn.execute('INSERT INTO grammar_favorites (user_id, point_id) VALUES (?,?)', (uid, asg_id))
+            grant_award(conn, uid, 'grammar_fav')
             new_val = 1
     return jsonify({'favorited': new_val})
 
@@ -1624,9 +1869,14 @@ def stats():
         ''', (uid,)).fetchone()
         total_reviews = totals['easy'] + totals['medium'] + totals['wrong']
 
-        session_dates = conn.execute(
-            "SELECT DISTINCT DATE(started_at) AS d FROM session_logs WHERE user_id = ? ORDER BY d DESC", (uid,)
-        ).fetchall()
+        session_dates = conn.execute('''
+            SELECT DISTINCT DATE(d) AS d FROM (
+                SELECT started_at AS d FROM session_logs WHERE user_id = ?
+                UNION
+                SELECT passed_at  AS d FROM map_progress
+                WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
+            ) ORDER BY d DESC
+        ''', (uid, uid)).fetchall()
         streak = 0
         if session_dates:
             most_recent = date_cls.fromisoformat(session_dates[0]['d'])
@@ -1708,6 +1958,15 @@ def stats():
         activity = {r['d']: int(r['reviews']) for r in activity_rows}
 
         # ── 6. Library size ───────────────────────────────────────────────────
+        earned_awards_rows = conn.execute(
+            'SELECT award_key FROM user_awards WHERE user_id=?', (uid,)
+        ).fetchall()
+        earned_keys = {r['award_key'] for r in earned_awards_rows}
+        earned_award_sample = random.sample(
+            [aw for aw in AWARDS if aw['key'] in earned_keys],
+            min(4, len(earned_keys))
+        )
+
         library = conn.execute('''
             SELECT COUNT(DISTINCT w.hanzi) AS total_hanzi,
                    COUNT(we.id)            AS total_examples
@@ -1792,7 +2051,123 @@ def stats():
         map_total_passed  = map_total_passed,
         total_hanzi       = library['total_hanzi'],
         total_examples    = library['total_examples'],
-        word_state_bars   = word_state_bars,
+        word_state_bars      = word_state_bars,
+        is_android           = IS_ANDROID,
+        earned_award_sample  = earned_award_sample,
+    )
+
+
+@app.route('/awards')
+def awards():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
+    from datetime import date as _date, timedelta as _td
+    with get_db() as conn:
+        check_lazy_awards(conn, uid)
+        earned_rows = conn.execute(
+            'SELECT award_key, awarded_at FROM user_awards WHERE user_id = ? ORDER BY awarded_at',
+            (uid,)
+        ).fetchall()
+        total_reviews = conn.execute('''
+            SELECT COALESCE(SUM(CAST(easy_count AS INTEGER) +
+                               CAST(medium_count AS INTEGER) +
+                               CAST(wrong_count  AS INTEGER)), 0)
+            FROM session_logs WHERE user_id = ?
+        ''', (uid,)).fetchone()[0]
+        known_total = conn.execute('''
+            SELECT COUNT(*) FROM (
+                SELECT DISTINCT w.hanzi, w.pinyin
+                FROM progress p JOIN words w ON w.id = p.word_id
+                WHERE p.interval_step >= 6 AND p.user_id = ?
+            )
+        ''', (uid,)).fetchone()[0]
+        # Streak
+        date_rows = conn.execute('''
+            SELECT DISTINCT DATE(d) AS d FROM (
+                SELECT started_at AS d FROM session_logs WHERE user_id = ?
+                UNION
+                SELECT passed_at AS d FROM map_progress
+                WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
+            ) ORDER BY d DESC
+        ''', (uid, uid)).fetchall()
+        streak = 0
+        if date_rows:
+            most_recent = _date.fromisoformat(date_rows[0]['d'])
+            if (_date.today() - most_recent).days <= 1:
+                for i, row in enumerate(date_rows):
+                    if _date.fromisoformat(row['d']) == most_recent - _td(days=i):
+                        streak += 1
+                    else:
+                        break
+        # Mastery progress: known and total words per curriculum+level
+        level_totals = {
+            (r['curriculum'], r['hsk_level']): r['cnt']
+            for r in conn.execute('''
+                SELECT curriculum, hsk_level, COUNT(*) AS cnt
+                FROM words WHERE curriculum IN ('classic','hsk3')
+                GROUP BY curriculum, hsk_level
+            ''').fetchall()
+        }
+        level_known = {
+            (r['curriculum'], r['hsk_level']): r['cnt']
+            for r in conn.execute('''
+                SELECT w.curriculum, w.hsk_level,
+                       COUNT(DISTINCT w.hanzi || '|' || w.pinyin) AS cnt
+                FROM progress p JOIN words w ON w.id = p.word_id
+                WHERE p.user_id = ? AND p.interval_step >= 6
+                  AND w.curriculum IN ('classic','hsk3')
+                GROUP BY w.curriculum, w.hsk_level
+            ''', (uid,)).fetchall()
+        }
+
+    earned = {r['award_key']: r['awarded_at'][:10] for r in earned_rows}
+
+    # Map mastery award keys → (curriculum, level)
+    mastery_key_map = {
+        **{f'known_classic_{l}': ('classic', l) for l in range(1, 7)},
+        **{f'known_hsk3_{l}':    ('hsk3',    l) for l in range(1, 8)},
+    }
+    cat_progress = {
+        'flashcard': total_reviews,
+        'words':     known_total,
+        'streak':    streak,
+    }
+
+    cat_labels = {
+        'flashcard': 'Flashcard Reviews',
+        'words':     'Words Learned',
+        'streak':    'Day Streaks',
+        'map':       'Learning Map',
+        'misc':      'Miscellaneous',
+        'mastery':   'Level Mastery',
+    }
+    categories = {}
+    for a in AWARDS:
+        cat = a['cat']
+        categories.setdefault(cat, {'label': cat_labels[cat], 'awards': []})
+        aw = {**a, 'earned_at': earned.get(a['key']),
+              'progress_pct': 0, 'progress_label': ''}
+        if not aw['earned_at']:
+            if cat in cat_progress and 'threshold' in a:
+                current = cat_progress[cat]
+                total   = a['threshold']
+                aw['progress_pct']   = min(100, int(current / total * 100)) if total else 0
+                aw['progress_label'] = f"{current:,} / {total:,}"
+            elif cat == 'mastery' and a['key'] in mastery_key_map:
+                curr_lvl = mastery_key_map[a['key']]
+                current  = level_known.get(curr_lvl, 0)
+                total    = level_totals.get(curr_lvl, 0)
+                aw['progress_pct']   = min(100, int(current / total * 100)) if total else 0
+                aw['progress_label'] = f"{current:,} / {total:,}"
+        categories[cat]['awards'].append(aw)
+
+    total_earned = len(earned)
+    total_awards = len(AWARDS)
+    return render_template('awards.html',
+        categories=categories, cat_order=list(cat_labels.keys()),
+        total_earned=total_earned, total_awards=total_awards,
+        is_android=IS_ANDROID,
     )
 
 
@@ -1921,6 +2296,9 @@ def end_session():
                 ''', (row['created_at'], now_str(), row['stack_size'] or 0,
                       total, new_w, easy, medium, wrong, row['selection'], score, uid))
             conn.execute('DELETE FROM study_sessions WHERE id = ?', (sid,))
+        if uid:
+            with get_db() as conn:
+                check_lazy_awards(conn, uid)
     session.clear()
     if uid:
         session['user_id'] = uid   # preserve user across session end
@@ -2134,6 +2512,8 @@ def api_custom_list_add():
             except sqlite3.IntegrityError:
                 pass  # already in list
 
+    if added > 0:
+        grant_award(conn, uid, 'custom_list')
     return jsonify({'ok': True, 'list_id': list_id, 'added': added})
 
 
@@ -2371,18 +2751,32 @@ def api_map_complete():
         if existing:
             new_best   = max(existing['best_score'] or 0, score)
             new_passed = 1 if (existing['passed'] or passed) else 0
-            conn.execute(
-                'UPDATE map_progress SET best_score=?, passed=?, attempts=attempts+1, last_at=? '
-                'WHERE user_id=? AND curriculum=? AND level=? AND circle_num=?',
-                (new_best, new_passed, now_str(), uid, curriculum, level, circle_num)
-            )
+            first_pass = passed and not existing['passed']
+            if first_pass and circle_num == 20 and uid:
+                # Circle 20 just passed for the first time — unlocks all 1-19 of this level
+                grant_award(conn, uid, 'map_skip')
+            if first_pass:
+                conn.execute(
+                    'UPDATE map_progress SET best_score=?, passed=?, passed_at=?, attempts=attempts+1, last_at=? '
+                    'WHERE user_id=? AND curriculum=? AND level=? AND circle_num=?',
+                    (new_best, new_passed, now_str(), now_str(), uid, curriculum, level, circle_num)
+                )
+            else:
+                conn.execute(
+                    'UPDATE map_progress SET best_score=?, passed=?, attempts=attempts+1, last_at=? '
+                    'WHERE user_id=? AND curriculum=? AND level=? AND circle_num=?',
+                    (new_best, new_passed, now_str(), uid, curriculum, level, circle_num)
+                )
         else:
             conn.execute(
-                'INSERT INTO map_progress (user_id, curriculum, level, circle_num, best_score, passed, attempts, last_at) '
-                'VALUES (?, ?, ?, ?, ?, ?, 1, ?)',
-                (uid, curriculum, level, circle_num, score, passed, now_str())
+                'INSERT INTO map_progress (user_id, curriculum, level, circle_num, best_score, passed, passed_at, attempts, last_at) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
+                (uid, curriculum, level, circle_num, score, passed, now_str() if passed else None, now_str())
             )
 
+    if passed and uid:
+        with get_db() as conn:
+            check_lazy_awards(conn, uid)
     return jsonify({'ok': True, 'passed': bool(passed)})
 
 
@@ -2425,6 +2819,10 @@ def users_create():
         user = conn.execute('SELECT id FROM users WHERE name = ?', (name,)).fetchone()
     if user:
         session['user_id'] = user['id']
+        with get_db() as conn:
+            total_users = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+            if total_users == 1:
+                grant_award(conn, user['id'], 'first_user')
     return redirect('/')
 
 
@@ -2545,6 +2943,14 @@ def _collect_sync_payload(uid, conn):
     for log in session_logs:
         log.pop('id', None)
 
+    user_awards = [dict(r) for r in conn.execute(
+        'SELECT award_key, awarded_at FROM user_awards WHERE user_id=? ORDER BY awarded_at', (uid,)
+    ).fetchall()]
+
+    game_plays = [r[0] for r in conn.execute(
+        'SELECT game_type FROM game_plays WHERE user_id=?', (uid,)
+    ).fetchall()]
+
     payload = {
         'version': 1,
         'user_name': user['name'],
@@ -2556,6 +2962,8 @@ def _collect_sync_payload(uid, conn):
         'map_progress': map_progress,
         'grammar_favorites': grammar_favorites,
         'session_logs': session_logs,
+        'user_awards': user_awards,
+        'game_plays': game_plays,
     }
     return user['name'], payload
 
@@ -2584,6 +2992,8 @@ def sync_export_raw():
         return jsonify({'error': 'No active user'}), 400
     with get_db() as conn:
         _, payload = _collect_sync_payload(uid, conn)
+        if payload is not None:
+            grant_award(conn, uid, 'exported')
     if payload is None:
         return jsonify({'error': 'User not found'}), 404
     return jsonify(payload)
@@ -2743,6 +3153,25 @@ def sync_import():
             ph = ','.join('?' * len(cols))
             conn.execute(f"INSERT INTO session_logs ({','.join(cols)}) VALUES ({ph})",
                          list(log.values()))
+
+        # Replace awards
+        conn.execute('DELETE FROM user_awards WHERE user_id=?', (uid,))
+        for aw in data.get('user_awards', []):
+            conn.execute(
+                'INSERT OR IGNORE INTO user_awards (user_id, award_key, awarded_at) VALUES (?,?,?)',
+                (uid, aw['award_key'], aw.get('awarded_at'))
+            )
+
+        # Replace game plays
+        conn.execute('DELETE FROM game_plays WHERE user_id=?', (uid,))
+        for game_type in data.get('game_plays', []):
+            if game_type in ALL_GAME_TYPES:
+                conn.execute(
+                    'INSERT OR IGNORE INTO game_plays (user_id, game_type) VALUES (?,?)',
+                    (uid, game_type)
+                )
+
+        grant_award(conn, uid, 'imported')
 
     return jsonify({'ok': True, 'words_imported': len(data.get('progress', [])),
                     'user_name': import_username})
@@ -2905,6 +3334,25 @@ def android_import_execute():
             ph = ','.join('?' * len(cols))
             conn.execute(f"INSERT INTO session_logs ({','.join(cols)}) VALUES ({ph})",
                          list(log.values()))
+
+        # Replace awards
+        conn.execute('DELETE FROM user_awards WHERE user_id=?', (uid,))
+        for aw in payload.get('user_awards', []):
+            conn.execute(
+                'INSERT OR IGNORE INTO user_awards (user_id, award_key, awarded_at) VALUES (?,?,?)',
+                (uid, aw['award_key'], aw.get('awarded_at'))
+            )
+
+        # Replace game plays
+        conn.execute('DELETE FROM game_plays WHERE user_id=?', (uid,))
+        for game_type in payload.get('game_plays', []):
+            if game_type in ALL_GAME_TYPES:
+                conn.execute(
+                    'INSERT OR IGNORE INTO game_plays (user_id, game_type) VALUES (?,?)',
+                    (uid, game_type)
+                )
+
+        grant_award(conn, uid, 'imported')
 
     return jsonify({'ok': True,
                     'words_imported': len(payload.get('progress', [])),
@@ -3198,6 +3646,9 @@ def anki_import():
     # Clean up temp folder
     shutil.rmtree(os.path.join(ANKI_TEMP_DIR, token), ignore_errors=True)
 
+    if uid:
+        with get_db() as conn:
+            grant_award(conn, uid, 'anki_imported')
     return jsonify({'ok': True, 'imported': imported, 'skipped': skipped, 'list_id': list_id})
 
 
