@@ -117,10 +117,16 @@ All games share a common settings bar (curriculum + HSK level filter) and integr
   <p><em>Game Draw Hanzi (Practice and Test)</em></p>
 </div>
 
+### Awards
+- 43 achievements across 6 categories: flashcard reviews, words learned, day streaks, level mastery, map progress, and explorer milestones
+- Awards are granted automatically as you study — no need to visit the awards page
+- Earned awards are included in progress exports and restored on import
+
 ### Stats & History
 - Activity calendar showing study days over the past 90 days
 - Session history log with date, duration, and review counts
 - Per-curriculum and per-level SRS progress breakdown
+- Recent awards snapshot on the stats page
 
 <div align="center">
   <img src="screenshots/stats.png" alt="Some in-depth stats for personal tracking" width="700"/>
@@ -152,36 +158,27 @@ Recommended model: `DeepSeek-Qwen3-8B-GGUF` (fast, good quality for this task).
 
 ---
 
-## Getting Started
+## Installation
 
-**1. Clone the repository**
-```bash
-git clone https://github.com/trainingDay25/MandarinTrainer.git
-cd mandarintrainer
-```
+Go to the [**Releases page**](https://github.com/trainingDay25/MandarinTrainer/releases) and download the version for your platform.
 
-**2. Run start.bat**
+### 🖥️ Desktop (Windows & macOS)
 
-Easiest way is to use the start.bat - It will create the venv, install dependencies and start the flask server. Alternatively you can 
-follow the next steps and install it manually as well.
+> Requires **Python 3.10 or higher** — download from [python.org](https://python.org). On Windows, tick "Add Python to PATH" during installation.
 
-start.bat will at the second run only launch the Mandarin Trainer
+1. Download the **Desktop ZIP** from the latest release and extract it anywhere
+2. **Windows:** double-click `start.bat`  
+   **macOS:** open Terminal in the folder and run `chmod +x start.sh && ./start.sh`
+3. On first run, all dependencies are installed automatically
+4. The app opens in your browser at `http://127.0.0.1:5001`
 
-**3. Create a virtual environment and install dependencies**
-```bash
-python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
+To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS) — your progress is preserved automatically.
 
-**4. Run the app**
-```bash
-python app.py
-```
+### 📱 Android
 
-Open [http://localhost:5001](http://localhost:5001) in your browser.
-
-The database (`vocab.db`) is created and populated automatically on first run.
+1. Download **MandarinTrainer.apk** from the latest release
+2. On your device, allow installation from unknown sources if prompted (Settings → Security)
+3. Open the downloaded APK and tap Install
 
 ---
 
@@ -194,26 +191,28 @@ Install and start [Lemonade](https://github.com/lemonade-sdk/lemonade), then loa
 ## Project Structure
 
 ```
-app.py                  Main Flask application
-vocab.db                SQLite database (auto-created)
-requirements.txt
-templates/
-  base.html             Navbar, layout shell
-  index.html            Study session (flashcard view)
-  map.html              Learning Map (snake-path progression)
-  game.html             Mini-games hub (Audio Bingo, Tone ID, Match, MC, Draw, Scrambled)
-  words.html            Word list & custom list management
-  custom.html           Custom lists overview
-  dictionary.html       Search / add to list
-  grammar.html          Grammar library (sidebar + article panel)
-  sessions.html         Session history
-  session.html          Single session detail
-  stats.html            Progress stats & activity calendar
-static/
-  style.css             Custom styles
+app.py                  Main Flask application entry point
+requirements.txt        Python dependencies
+start.bat / start.sh    Launch script (Windows / macOS)
+update.bat / update.sh  Updater script (Windows / macOS)
+src/mandarin_trainer/
+  server.py             Flask routes and all application logic
+  templates/
+    base.html           Navbar, layout shell
+    index.html          Study session (flashcard view)
+    map.html            Learning Map (snake-path progression)
+    game.html           Mini-games hub (Audio Bingo, Tone ID, Match, MC, Draw, Scrambled)
+    words.html          Word list & custom list management
+    custom.html         Custom lists overview
+    dictionary.html     Search / add to list
+    grammar.html        Grammar library (sidebar + article panel)
+    sessions.html       Session history
+    stats.html          Progress stats & activity calendar
+    awards.html         Awards & achievements
+  static/
+    style.css           Custom styles
+vocab.db                SQLite database — created on first run, not included in repo
 tts_cache/              Cached TTS audio files (auto-created)
-import_grammar.py       Import grammar data from source repos
-consolidate_grammar.py  Deduplicate grammar entries
 ```
 
 ---
