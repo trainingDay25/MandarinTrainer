@@ -8,6 +8,30 @@ A local web app for studying Mandarin Chinese vocabulary and grammar. Built with
 
 ---
 
+## Installation
+
+Go to the [**Releases page**](https://github.com/trainingDay25/MandarinTrainer/releases) and download the version for your platform.
+
+### 🖥️ Desktop (Windows & macOS)
+
+> Requires **Python 3.10 or higher** — download from [python.org](https://python.org). On Windows, tick "Add Python to PATH" during installation.
+
+1. Download the **Desktop ZIP** from the latest release and extract it anywhere
+2. **Windows:** double-click `start.bat`  
+   **macOS:** open Terminal in the folder and run `chmod +x start.sh && ./start.sh`
+3. On first run, all dependencies are installed automatically
+4. The app opens in your browser at `http://127.0.0.1:5001`
+
+To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS) — your progress is preserved automatically.
+
+### 📱 Android
+
+1. Download **MandarinTrainer.apk** from the latest release
+2. On your device, allow installation from unknown sources if prompted (Settings → Security)
+3. Open the downloaded APK and tap Install
+
+---
+
 ## Features
 
 ### Study (Spaced Repetition)
@@ -155,30 +179,6 @@ Recommended model: `DeepSeek-Qwen3-8B-GGUF` (fast, good quality for this task).
 | Frontend | Bootstrap 5, vanilla JS |
 | TTS | edge-tts (server-side, cached to `tts_cache/`) |
 | LLM *(optional)* | Lemonade local inference server |
-
----
-
-## Installation
-
-Go to the [**Releases page**](https://github.com/trainingDay25/MandarinTrainer/releases) and download the version for your platform.
-
-### 🖥️ Desktop (Windows & macOS)
-
-> Requires **Python 3.10 or higher** — download from [python.org](https://python.org). On Windows, tick "Add Python to PATH" during installation.
-
-1. Download the **Desktop ZIP** from the latest release and extract it anywhere
-2. **Windows:** double-click `start.bat`  
-   **macOS:** open Terminal in the folder and run `chmod +x start.sh && ./start.sh`
-3. On first run, all dependencies are installed automatically
-4. The app opens in your browser at `http://127.0.0.1:5001`
-
-To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS) — your progress is preserved automatically.
-
-### 📱 Android
-
-1. Download **MandarinTrainer.apk** from the latest release
-2. On your device, allow installation from unknown sources if prompted (Settings → Security)
-3. Open the downloaded APK and tap Install
 
 ---
 
