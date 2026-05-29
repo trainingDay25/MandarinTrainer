@@ -606,7 +606,7 @@ AWARDS = [
     {'cat': 'map',       'key': 'map_classic',   'icon': '🎓', 'title': 'Classic HSK Complete','desc': 'Complete all Classic HSK levels on the map'},
     {'cat': 'map',       'key': 'map_hsk3',      'icon': '🎓', 'title': 'New HSK 3.0 Complete','desc': 'Complete all New HSK 3.0 levels on the map'},
     # ── Misc / event ──
-    {'cat': 'misc',      'key': 'first_user',    'icon': '👋', 'title': 'Welcome!',           'desc': 'Create your first user account'},
+    {'cat': 'misc',      'key': 'first_user',    'icon': '👋', 'title': 'Welcome!',           'desc': 'Create a user account'},
     {'cat': 'misc',      'key': 'custom_list',   'icon': '📝', 'title': 'Curator',            'desc': 'Create a custom list and add at least one word'},
     {'cat': 'misc',      'key': 'exported',      'icon': '💾', 'title': 'Backed Up',          'desc': 'Export your progress'},
     {'cat': 'misc',      'key': 'imported',      'icon': '📥', 'title': 'Fresh Start',        'desc': 'Import progress from a file'},
@@ -1957,6 +1957,14 @@ def stats():
         ''', (uid,)).fetchall()
         activity = {r['d']: int(r['reviews']) for r in activity_rows}
 
+        map_activity_rows = conn.execute('''
+            SELECT DISTINCT DATE(passed_at) AS d
+            FROM map_progress
+            WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
+              AND passed_at >= date('now','-90 days')
+        ''', (uid,)).fetchall()
+        map_activity_dates = {r['d'] for r in map_activity_rows}
+
         # ── 6. Library size ───────────────────────────────────────────────────
         earned_awards_rows = conn.execute(
             'SELECT award_key FROM user_awards WHERE user_id=?', (uid,)
@@ -2054,6 +2062,7 @@ def stats():
         word_state_bars      = word_state_bars,
         is_android           = IS_ANDROID,
         earned_award_sample  = earned_award_sample,
+        map_activity_dates   = map_activity_dates,
     )
 
 
@@ -2752,9 +2761,6 @@ def api_map_complete():
             new_best   = max(existing['best_score'] or 0, score)
             new_passed = 1 if (existing['passed'] or passed) else 0
             first_pass = passed and not existing['passed']
-            if first_pass and circle_num == 20 and uid:
-                # Circle 20 just passed for the first time — unlocks all 1-19 of this level
-                grant_award(conn, uid, 'map_skip')
             if first_pass:
                 conn.execute(
                     'UPDATE map_progress SET best_score=?, passed=?, passed_at=?, attempts=attempts+1, last_at=? '
@@ -2768,11 +2774,15 @@ def api_map_complete():
                     (new_best, new_passed, now_str(), uid, curriculum, level, circle_num)
                 )
         else:
+            first_pass = bool(passed)
             conn.execute(
                 'INSERT INTO map_progress (user_id, curriculum, level, circle_num, best_score, passed, passed_at, attempts, last_at) '
                 'VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
                 (uid, curriculum, level, circle_num, score, passed, now_str() if passed else None, now_str())
             )
+
+        if first_pass and circle_num == 20 and uid:
+            grant_award(conn, uid, 'map_skip')
 
     if passed and uid:
         with get_db() as conn:
@@ -2820,9 +2830,7 @@ def users_create():
     if user:
         session['user_id'] = user['id']
         with get_db() as conn:
-            total_users = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
-            if total_users == 1:
-                grant_award(conn, user['id'], 'first_user')
+            grant_award(conn, user['id'], 'first_user')
     return redirect('/')
 
 
@@ -3171,6 +3179,8 @@ def sync_import():
                     (uid, game_type)
                 )
 
+        # Grant after awards restore so the DELETE wipe can't remove it
+        grant_award(conn, uid, 'first_user')
         grant_award(conn, uid, 'imported')
 
     return jsonify({'ok': True, 'words_imported': len(data.get('progress', [])),
@@ -3249,9 +3259,10 @@ def android_import_execute():
 
     with get_db() as conn:
         row = conn.execute('SELECT id FROM users WHERE name=?', (import_username,)).fetchone()
-        uid = row['id'] if row else conn.execute(
-            'INSERT INTO users (name) VALUES (?)', (import_username,)
-        ).lastrowid
+        if row:
+            uid = row['id']
+        else:
+            uid = conn.execute('INSERT INTO users (name) VALUES (?)', (import_username,)).lastrowid
 
     session['user_id'] = uid
 
@@ -3352,6 +3363,8 @@ def android_import_execute():
                     (uid, game_type)
                 )
 
+        # Grant after awards restore so the DELETE wipe can't remove it
+        grant_award(conn, uid, 'first_user')
         grant_award(conn, uid, 'imported')
 
     return jsonify({'ok': True,
