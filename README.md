@@ -1,6 +1,6 @@
-# Mandarin Trainer
+# Mandarin & Japanese Trainer
 
-A local web app for studying Mandarin Chinese vocabulary and grammar. Built with Flask and SQLite, it runs entirely on your machine — no account, no cloud, no subscription.
+A local web app for studying **Mandarin Chinese** and **Japanese** vocabulary and grammar. Built with Flask and SQLite, it runs entirely on your machine — no account, no cloud, no subscription.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-green)
@@ -32,13 +32,28 @@ To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS
 
 ---
 
+## Language Modes
+
+Switch between **Chinese** and **Japanese** at any time using the flag icons in the top bar. Each language has its own vocabulary, dictionary, custom lists, and SRS progress — they never mix.
+
+| | Chinese | Japanese |
+|---|---|---|
+| Curricula | Classic HSK 1–6, New HSK 3.0 L1–9 | JLPT N5–N1 |
+| Writing | Simplified + Traditional + Pinyin | Kanji + Kana |
+| Dictionary | CC-CEDICT (~100k entries) | 24k-entry JP dictionary |
+| Kana chart | — | Hiragana & Katakana reference |
+
+---
+
 ## Features
 
 ### Study (Spaced Repetition)
 - Flashcard sessions using a spaced repetition system (SRS)
 - Grade each card as **Easy**, **Medium**, or **Wrong** — the interval adjusts automatically
-- Supports two curricula: **Classic HSK** (levels 1–6) and **New HSK 3.0** (levels 1–9)
-- Study by HSK level, a custom word list, or a mix of due and new cards
+- **Chinese:** Classic HSK (levels 1–6) and New HSK 3.0 (levels 1–9)
+- **Japanese:** JLPT N5–N1 (5 levels, ~7,900 words with example sentences)
+- Cards show kanji/hanzi, reading (pinyin or kana), and English; choose what to show on the front
+- Study by level, a custom word list, or a mix of due and new cards
 - Session summary with per-grade counts and a progress bar
 
 <div align="center">
@@ -52,8 +67,8 @@ To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS
 </div>
 
 ### Word List
-- Browse all vocabulary filtered by curriculum and HSK level
-- Word detail modal with hanzi, pinyin, English meaning, and example sentence
+- Browse all vocabulary filtered by curriculum and level
+- Word detail modal with kanji/hanzi, reading (pinyin or kana), English meaning, and example sentence
 - Text-to-speech playback for any word (powered by [edge-tts](https://github.com/rany2/edge-tts))
 - Edit custom example sentences per word
 - Track SRS progress indicators per word
@@ -69,9 +84,9 @@ To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS
 </div>
 
 ### Dictionary
-- Full-text search across all words by hanzi, pinyin, or English
-- Pinyin search works with or without tone marks
-- Select words and add them directly to a custom list
+- **Chinese:** full CC-CEDICT search by simplified/traditional hanzi, pinyin (with or without tone marks), or English
+- **Japanese:** 24k-entry dictionary searchable by kanji, romanization, or English
+- Select any result and add it directly to a language-specific custom list
 
 <div align="center">
   <img src="screenshots/cedict-example-customlist.png" alt="Word List Example - Adding to custom list" width="700"/>
@@ -84,7 +99,7 @@ To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS
 - Study a specific list in isolation
 - Reset SRS progress per list independently
 
-### Grammar Library
+### Grammar Library *(Chinese only)*
 - ~500 grammar points sourced from the [AllSet Learning Chinese Grammar Wiki](https://resources.allsetlearning.com/chinese/grammar/)
 - Two-panel layout: collapsible sidebar with live search + inline article view
 - Organised by HSK level (1–6) with an "Other" group for uncategorised entries
@@ -94,13 +109,17 @@ To update to a newer release, run `update.bat` (Windows) or `./update.sh` (macOS
 - Bookmark favourite articles with a star — filter to favourites only
 - Grammar data sourced from [Chinese-Grammar](https://github.com/krmanik/Chinese-Grammar) and [asg](https://github.com/ivankara/asg) — thank you to the contributors of both projects
 
+### Hiragana & Katakana Chart *(Japanese only)*
+- Full kana reference table available under Explore → Hiragana & Katakana
+- Visible only when in Japanese mode
+
 <div align="center">
   <img src="screenshots/grammar-library-example.png" alt="Grammar Library - Sorted by HSK" width="700"/>
   <p><em>Grammar Library - Sorted by HSK</em></p>
 </div>
 
 ### Learning Map
-- Visual snake-path map through every HSK level for both curricula
+- Visual snake-path map through every level for all curricula (HSK Classic, New HSK, JLPT)
 - 20 circles per level — each circle is a timed quiz session drawn from that level's vocabulary
 - Circles are colour-coded: **green ✓** (passed), **blue** (unlocked), **grey 🔒** (locked)
 - Passing threshold rises from 75 % on circle 1 to 94 % on circle 20 (+1 % per circle)
@@ -117,14 +136,14 @@ Six mini-games for varied practice, playable freely or directly from the Learnin
 
 | Game | Description |
 |------|-------------|
-| 🔊 **Audio Bingo** | Hear a word via TTS and tap the matching hanzi on a grid |
-| 🎵 **Tone ID** | Identify the tone of a spoken syllable |
-| 🃏 **Match Pairs** | Flip cards to match hanzi with their English meaning |
-| 📝 **Multiple Choice** | Choose the correct translation (Hanzi → English or English → Hanzi) |
-| ✍️ **Draw Hanzi** | Trace characters with practice or test mode |
-| 🔀 **Scrambled** | Reassemble a shuffled word or sentence |
+| 🔊 **Audio Bingo** | Hear a word via TTS and tap the matching character on a grid |
+| 🎵 **Tone ID** | Identify the tone of a spoken syllable *(Chinese only)* |
+| 🃏 **Match Pairs** | Flip cards to match kanji/hanzi with their English meaning |
+| 📝 **Multiple Choice** | Choose the correct translation (character → English or English → character) |
+| ✍️ **Draw Hanzi/Kanji** | Trace characters with practice or test mode |
+| 🔀 **Scrambled** | Reassemble a shuffled sentence — uses word-level tiles for Chinese (jieba), alternating kanji/kana runs for Japanese |
 
-All games share a common settings bar (curriculum + HSK level filter) and integrate with the Learning Map progress tracker.
+All games share a common settings bar (curriculum + level filter) and integrate with the Learning Map progress tracker.
 
 <div align="center">
   <img src="screenshots/Game-Bingo.png" alt="Game Tone Bingo" width="700"/>
@@ -219,7 +238,10 @@ tts_cache/              Cached TTS audio files (auto-created)
 
 ## Data Sources
 
-- **Vocabulary**: HSK Classic (1–6) and New HSK 3.0 (1–9) word lists
+- **Chinese vocabulary**: HSK Classic (1–6) and New HSK 3.0 (1–9) word lists
+- **Japanese vocabulary**: JLPT N5–N1 word lists (~7,900 words) with hand-written example sentences
+- **Japanese dictionary**: 24k-entry kanji/word dictionary with romanization and English translations
+- **Chinese dictionary**: [CC-CEDICT](https://www.mdbg.net/chinese/dictionary?page=cedict) (~100k entries)
 - **Grammar**: [Chinese-Grammar](https://github.com/krmanik/Chinese-Grammar) and [asg](https://github.com/ivankra/asg), both based on the [AllSet Learning Chinese Grammar Wiki](https://resources.allsetlearning.com/chinese/grammar/)
 
 ---
