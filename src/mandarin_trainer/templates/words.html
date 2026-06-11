@@ -64,7 +64,7 @@
 
 {# ── Curriculum toggle ── #}
 {% if curricula|length > 1 %}
-{% set labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'custom': 'Custom Lists'} %}
+{% set labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'jlpt': 'JLPT', 'custom': 'Custom Lists'} %}
 <div class="d-flex gap-2 mb-3">
   {% for c in curricula %}
   <a href="{% if c == 'custom' %}/words?curriculum=custom{% else %}/words?curriculum={{ c }}&hsk=1{% endif %}"
@@ -106,7 +106,7 @@
     {% for lc in level_counts %}
     <a href="/words?curriculum={{ active_curriculum }}&hsk={{ lc.hsk_level }}"
        class="btn btn-sm {% if active_hsk == lc.hsk_level|string %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-      HSK{{ '7-9' if (active_curriculum == 'hsk3' and lc.hsk_level == 7) else lc.hsk_level }}
+      {% if lang == 'japanese' %}{{ level_label(lc.hsk_level) }}{% else %}HSK{{ '7-9' if (active_curriculum == 'hsk3' and lc.hsk_level == 7) else lc.hsk_level }}{% endif %}
       <span class="ms-1 badge {% if active_hsk == lc.hsk_level|string %}bg-white text-primary{% else %}bg-secondary{% endif %}">
         {{ lc.total }}
       </span>
@@ -134,9 +134,9 @@
     <table class="table table-hover table-words mb-0">
       <thead class="table-light">
         <tr>
-          {% if active_hsk == 'all' %}<th>HSK</th>{% endif %}
-          <th>Hanzi</th>
-          <th>Pinyin</th>
+          {% if active_hsk == 'all' %}<th>{% if lang == 'japanese' %}JLPT{% else %}HSK{% endif %}</th>{% endif %}
+          <th>{% if lang == 'japanese' %}Kanji{% else %}Hanzi{% endif %}</th>
+          <th>{% if lang == 'japanese' %}Reading{% else %}Pinyin{% endif %}</th>
           <th>English</th>
           <th>Grade</th>
           <th>Progress</th>
@@ -150,7 +150,7 @@
           {% if active_hsk == 'all' %}
           <td>
             {% if w.hsk_level %}
-            <span class="hsk-badge">HSK{{ '7-9' if (active_curriculum == 'hsk3' and w.hsk_level == 7) else w.hsk_level }}</span>
+            <span class="hsk-badge">{% if lang == 'japanese' %}{{ level_label(w.hsk_level) }}{% else %}HSK{{ '7-9' if (active_curriculum == 'hsk3' and w.hsk_level == 7) else w.hsk_level }}{% endif %}</span>
             {% endif %}
           </td>
           {% endif %}

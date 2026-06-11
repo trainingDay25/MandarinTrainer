@@ -6,7 +6,7 @@
 
     {# ── Title + inline stats ── #}
     <div class="d-flex align-items-baseline gap-3 flex-wrap mb-1">
-      <h2 class="fw-bold mb-0">今天学什么？</h2>
+      <h2 class="fw-bold mb-0">{% if lang == 'japanese' %}今日は何を学ぶ？{% else %}今天学什么？{% endif %}</h2>
       <span class="text-muted small">
         {{ total }} words
         {% if due_cnt > 0 %}
@@ -29,7 +29,7 @@
 
     {# ── Curriculum toggle ── #}
     {% if curricula|length > 1 %}
-    {% set labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'custom': 'Custom'} %}
+    {% set labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'jlpt': 'JLPT', 'custom': 'Custom'} %}
     <div class="d-flex gap-2 mb-4 mt-2">
       {% for c in curricula %}
       <a href="/?curriculum={{ c }}"
@@ -40,7 +40,7 @@
     </div>
     {% else %}
     <p class="text-muted small mb-4 mt-1">
-      {{ {'classic':'Classic HSK','hsk3':'New HSK 3.0','custom':'Custom'}.get(curriculum, curriculum) }}
+      {{ {'classic':'Classic HSK','hsk3':'New HSK 3.0','jlpt':'JLPT','custom':'Custom'}.get(curriculum, curriculum) }}
     </p>
     {% endif %}
 
@@ -79,7 +79,7 @@
           <div class="form-text mt-2">Leave all unchecked to include every list.</div>
           {% else %}
           <div class="d-flex justify-content-between align-items-center mb-2">
-            <span class="form-section-label">HSK Levels</span>
+            <span class="form-section-label">{% if lang == 'japanese' %}JLPT Levels{% else %}HSK Levels{% endif %}</span>
             <div class="small">
               <a href="#" onclick="selectAllHSK(true);return false"  class="text-muted me-2">All</a>
               <a href="#" onclick="selectAllHSK(false);return false" class="text-muted">None</a>
@@ -92,7 +92,7 @@
                    id="hsk{{ level }}" value="{{ level }}"
                    {% if s['total'] == 0 %}disabled{% endif %}>
             <label class="btn btn-sm btn-outline-secondary hsk-chip" for="hsk{{ level }}">
-              HSK {{ '7-9' if (curriculum == 'hsk3' and level == 7) else level }}
+              {% if lang == 'japanese' %}{{ level_label(level) }}{% else %}HSK {{ '7-9' if (curriculum == 'hsk3' and level == 7) else level }}{% endif %}
               {% if s['due_cnt'] > 0 %}
               <span class="hsk-dot dot-due"></span>
               {% elif s['new_cnt'] > 0 and s['total'] > 0 %}
@@ -145,8 +145,8 @@
           <span class="form-section-label">Show on card</span>
           <select name="mode" class="form-select form-select-sm" style="min-width:130px">
             <option value="mix"     selected>Mix (random)</option>
-            <option value="hanzi"  >Hanzi</option>
-            <option value="pinyin" >Pinyin</option>
+            <option value="hanzi"  >{% if lang == 'japanese' %}Kanji{% else %}Hanzi{% endif %}</option>
+            <option value="pinyin" >{% if lang == 'japanese' %}Kana{% else %}Pinyin{% endif %}</option>
             <option value="english">English</option>
           </select>
 

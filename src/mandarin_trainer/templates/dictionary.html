@@ -1,6 +1,14 @@
 {% extends 'base.html' %}
-{% block title %}Dictionary – Mandarin Trainer{% endblock %}
+{% block title %}Dictionary – {% if lang == 'japanese' %}Japanese{% else %}Chinese{% endif %} – Mandarin Trainer{% endblock %}
 
+{% if lang == 'japanese' %}
+{% set field_labels = {
+  'all':        'All fields',
+  'simplified': 'Kanji',
+  'pinyin':     'Romaji',
+  'english':    'English'
+} %}
+{% else %}
 {% set field_labels = {
   'all':         'All fields',
   'simplified':  'Simplified',
@@ -8,19 +16,31 @@
   'pinyin':      'Pinyin',
   'english':     'English'
 } %}
+{% endif %}
 
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-md-9">
 
-    <h2 class="mb-1 fw-bold">Dictionary</h2>
+    <h2 class="mb-1 fw-bold">
+      Dictionary
+      <span class="text-muted fw-normal fs-6">{% if lang == 'japanese' %}Japanese 日本語{% else %}Chinese 中文{% endif %}</span>
+    </h2>
     <p class="text-muted mb-3">
+      {% if lang == 'japanese' %}
+      Search by kanji (e.g. <em>食べる</em>), romaji (e.g. <em>taberu</em>), or English.
+      {% else %}
       Search by hanzi, pinyin (e.g. <em>nǐhǎo</em>, <em>ni3hao3</em>, <em>nihao</em>), or English.
+      {% endif %}
     </p>
 
     {% if not has_data %}
     <div class="alert alert-warning">
+      {% if lang == 'japanese' %}
+      Japanese dictionary not loaded. Make sure <code>jp_dictionary.json</code> is present in the app folder.
+      {% else %}
       Dictionary not loaded yet. Run <code>python import_cedict.py</code> to import CC-CEDICT.
+      {% endif %}
     </div>
     {% endif %}
 
@@ -46,7 +66,7 @@
 
         <input type="hidden" name="field" id="field-input" value="{{ field }}">
         <input type="text" name="q" value="{{ q }}" class="form-control"
-               placeholder="你好 · ni3hao3 · hello"
+               placeholder="{% if lang == 'japanese' %}食べる · taberu · to eat{% else %}你好 · ni3hao3 · hello{% endif %}"
                autofocus autocomplete="off"
                {% if not has_data %}disabled{% endif %}>
         <button class="btn btn-primary" type="submit"
@@ -78,9 +98,14 @@
                          onchange="toggleAll(this.checked)">
                 </th>
                 {% endif %}
+                {% if lang == 'japanese' %}
+                <th style="min-width:100px">Kanji</th>
+                <th>Romaji</th>
+                {% else %}
                 <th style="min-width:80px">Simplified</th>
                 <th>Traditional</th>
                 <th>Pinyin</th>
+                {% endif %}
                 <th>English</th>
               </tr>
             </thead>
@@ -93,11 +118,18 @@
                          onchange="onCheck({{ r.id }}, this.checked)">
                 </td>
                 {% endif %}
+                {% if lang == 'japanese' %}
+                <td class="hanzi-cell fs-5"
+                    onclick="{% if has_user %}event.stopPropagation();{% endif %}playTTS('{{ r.simplified }}')"
+                    style="cursor:pointer" title="Play">{{ r.simplified }}</td>
+                <td class="text-primary">{{ r.pinyin }}</td>
+                {% else %}
                 <td class="hanzi-cell fs-5">{{ r.simplified }}</td>
                 <td class="text-muted {% if r.traditional == r.simplified %}opacity-25{% endif %}">
                   {{ r.traditional }}
                 </td>
                 <td class="text-primary">{{ r.pinyin }}</td>
+                {% endif %}
                 <td class="small">{{ r.english }}</td>
               </tr>
               {% endfor %}
@@ -145,13 +177,15 @@
 
 {% block scripts %}
 <script>
+const LANG = {{ lang|tojson }};
+
 // ── Field selector ────────────────────────────────────────────────────────────
 function setField(val, label) {
   document.getElementById('field-input').value = val;
   document.getElementById('field-btn').textContent = label + ' ';
 }
 
-// ── Row selection ────────────────────────────────────────────────────────���────
+// ── Row selection ─────────────────────────────────────────────────────────────
 const selected = new Set();
 
 function onCheck(id, checked) {
@@ -187,7 +221,7 @@ function updateBar() {
   document.getElementById('action-bar').classList.toggle('d-none', selected.size === 0);
 }
 
-// ── Lazy loading ───────────────────────────────────���──────────────────────────
+// ── Lazy loading ──────────────────────────────────────────────────────────────
 let currentOffset = {{ results|length }};
 let isLoading     = false;
 let hasMore       = {{ 'true' if has_more else 'false' }};
@@ -203,7 +237,6 @@ function escHtml(s) {
 }
 
 function buildRow(r) {
-  const tradFade = r.traditional === r.simplified ? 'opacity-25' : '';
   {% if has_user %}
   const cbCell = `<td onclick="event.stopPropagation()">
       <input type="checkbox" class="word-check" data-id="${r.id}"
@@ -214,13 +247,25 @@ function buildRow(r) {
   const cbCell = '';
   const rowClick = '';
   {% endif %}
-  return `<tr class="dict-row" ${rowClick}>
-    ${cbCell}
-    <td class="hanzi-cell fs-5">${escHtml(r.simplified)}</td>
-    <td class="text-muted ${tradFade}">${escHtml(r.traditional)}</td>
-    <td class="text-primary">${escHtml(r.pinyin)}</td>
-    <td class="small">${escHtml(r.english)}</td>
-  </tr>`;
+
+  if (LANG === 'japanese') {
+    return `<tr class="dict-row" ${rowClick}>
+      ${cbCell}
+      <td class="hanzi-cell fs-5" onclick="event.stopPropagation();playTTS('${escHtml(r.simplified)}')"
+          style="cursor:pointer" title="Play">${escHtml(r.simplified)}</td>
+      <td class="text-primary">${escHtml(r.pinyin)}</td>
+      <td class="small">${escHtml(r.english)}</td>
+    </tr>`;
+  } else {
+    const tradFade = r.traditional === r.simplified ? 'opacity-25' : '';
+    return `<tr class="dict-row" ${rowClick}>
+      ${cbCell}
+      <td class="hanzi-cell fs-5">${escHtml(r.simplified)}</td>
+      <td class="text-muted ${tradFade}">${escHtml(r.traditional)}</td>
+      <td class="text-primary">${escHtml(r.pinyin)}</td>
+      <td class="small">${escHtml(r.english)}</td>
+    </tr>`;
+  }
 }
 
 async function loadMore() {
@@ -256,7 +301,7 @@ const observer = new IntersectionObserver(entries => {
 if (sentinel && hasMore) observer.observe(sentinel);
 if (sentinel && !hasMore && END_MSG) END_MSG.classList.remove('d-none');
 
-// ── Custom list dropdown ─────────────────────────────���────────────────────────
+// ── Custom list dropdown ──────────────────────────────────────────────────────
 async function loadLists() {
   const res  = await fetch('/api/custom-lists');
   const data = await res.json();
@@ -279,7 +324,7 @@ document.getElementById('list-pick').addEventListener('change', function () {
 async function addSelected() {
   const pick    = document.getElementById('list-pick');
   const newName = document.getElementById('new-list-name').value.trim();
-  if (!pick.value)                        { showToast('Please choose a list.', 'warning'); return; }
+  if (!pick.value)                         { showToast('Please choose a list.', 'warning'); return; }
   if (pick.value === '__new__' && !newName) { showToast('Enter a name for the new list.', 'warning'); return; }
 
   const res  = await fetch('/api/custom-list/add', {

@@ -23,7 +23,7 @@
       {# Title + subtitle — desktop only #}
       <div class="flex-shrink-0 me-2 d-none d-md-block">
         <div class="subheader-title">Mandarin Trainer</div>
-        <div class="subheader-sub">普通话练习</div>
+        <div class="subheader-sub">{% if (current_language or 'chinese') == 'japanese' %}日本語練習{% else %}普通话练习{% endif %}</div>
       </div>
 
       {# Study + Map quick links — mobile only #}
@@ -70,9 +70,9 @@
           </ul>
         </div>
 
-        {# Explore: Map, Family #}
+        {# Explore: Map, Family / Kana #}
         <div class="dropdown">
-          <button class="subnav-link subnav-drop {% if _p.startswith('/map') or _p.startswith('/family') %}active{% endif %}"
+          <button class="subnav-link subnav-drop {% if _p.startswith('/map') or _p.startswith('/family') or _p.startswith('/kana') %}active{% endif %}"
                   data-bs-toggle="dropdown" type="button">
             Explore
           </button>
@@ -81,6 +81,10 @@
                    href="{{ '/end?next=/map' if in_session else '/map' }}">Map</a></li>
             <li><a class="dropdown-item {% if _p.startswith('/family') %}active{% endif %}"
                    href="{{ '/end?next=/family' if in_session else '/family' }}">Family</a></li>
+            {% if (current_language or 'chinese') == 'japanese' %}
+            <li><a class="dropdown-item {% if _p.startswith('/kana') %}active{% endif %}"
+                   href="{{ '/end?next=/kana' if in_session else '/kana' }}">Hiragana &amp; Katakana</a></li>
+            {% endif %}
           </ul>
         </div>
 
@@ -104,6 +108,18 @@
 
       {# Push account + hamburger to the right on mobile (nav is hidden) #}
       <div class="d-md-none flex-grow-1"></div>
+
+      {# Language switcher #}
+      {% set _lang = current_language or 'chinese' %}
+      {% set _here = request.full_path.rstrip('?') %}
+      <div class="flex-shrink-0 d-flex gap-1">
+        <a href="{{ url_for('set_language', lang='chinese', next=_here) }}"
+           class="lang-flag {% if _lang == 'chinese' %}lang-flag-active{% endif %}"
+           title="Chinese"><img src="https://flagcdn.com/24x18/cn.png" alt="CN" width="24" height="18"></a>
+        <a href="{{ url_for('set_language', lang='japanese', next=_here) }}"
+           class="lang-flag {% if _lang == 'japanese' %}lang-flag-active{% endif %}"
+           title="Japanese"><img src="https://flagcdn.com/24x18/jp.png" alt="JP" width="24" height="18"></a>
+      </div>
 
       {# Account indicator — always visible, shows active user name #}
       <a href="/users" class="flex-shrink-0 text-decoration-none
@@ -152,6 +168,9 @@
       <div class="mobile-nav-section">Explore</div>
       <a href="{{ '/end?next=/map' if in_session else '/map' }}"       class="mobile-nav-link">Map</a>
       <a href="{{ '/end?next=/family' if in_session else '/family' }}" class="mobile-nav-link">Family</a>
+      {% if (current_language or 'chinese') == 'japanese' %}
+      <a href="{{ '/end?next=/kana' if in_session else '/kana' }}" class="mobile-nav-link">Hiragana &amp; Katakana</a>
+      {% endif %}
 
       <hr class="nav-drawer-divider">
       <div class="mobile-nav-section">Progress</div>

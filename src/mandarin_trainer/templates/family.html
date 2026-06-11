@@ -3,7 +3,11 @@
 
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  {% if lang == 'japanese' %}
+  <h4 class="mb-0">Japanese Family Tree <span class="text-muted fw-normal fs-6">家族関係</span></h4>
+  {% else %}
   <h4 class="mb-0">Chinese Family Tree <span class="text-muted fw-normal fs-6">家庭关系</span></h4>
+  {% endif %}
   <div class="d-flex align-items-center gap-2">
     <span class="text-muted small">我是:</span>
     <button id="btn-male"   class="btn btn-sm btn-primary"          onclick="setGender('male')">男 Male</button>
@@ -68,6 +72,15 @@
 
 <!-- Legend -->
 <div class="d-flex flex-wrap gap-2 mt-4 justify-content-center">
+  {% if lang == 'japanese' %}
+  <span class="ft-legend ft-pat">Paternal 父方</span>
+  <span class="ft-legend ft-mat">Maternal 母方</span>
+  <span class="ft-legend ft-me">Me 私</span>
+  <span class="ft-legend ft-sib">Siblings 兄弟姉妹</span>
+  <span class="ft-legend ft-spouse">Spouse 配偶者</span>
+  <span class="ft-legend ft-inlaw">In-laws 義理</span>
+  <span class="ft-legend ft-child">Children+ 子孫</span>
+  {% else %}
   <span class="ft-legend ft-pat">Paternal 父系</span>
   <span class="ft-legend ft-mat">Maternal 母系</span>
   <span class="ft-legend ft-me">Me 我</span>
@@ -75,7 +88,7 @@
   <span class="ft-legend ft-spouse">Spouse 配偶</span>
   <span class="ft-legend ft-inlaw">In-laws 姻亲</span>
   <span class="ft-legend ft-child">Children+ 子孙</span>
-  {# <span class="ft-legend ft-cousin">Cousins 堂/表</span> #}
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -234,10 +247,10 @@
 </style>
 
 <script>
-// ── Family data ───────────────────────────────────────────────────────────────
-// All terms from "my" perspective (我). Gender variants handled separately.
+const LANG = {{ lang | tojson }};
 
-const FM = {
+// ── Chinese family data ───────────────────────────────────────────────────────
+const FM_ZH = {
   // GEN +2
   patGF: { h:'爷爷', f:'祖父',   p:'yéye',     e:"Father's father",          c:'pat', calls:'孙子/孙女 sūnzi/sūnnǚ',      note:'Northern: 爷爷 used nationwide' },
   patGM: { h:'奶奶', f:'祖母',   p:'nǎinai',   e:"Father's mother",          c:'pat', calls:'孙子/孙女',                  note:'' },
@@ -305,8 +318,60 @@ const FM = {
   inlawM: { h:'岳母', f:'岳母', p:'yuèmǔ',    e:"Wife's mother",  c:'inlaw', calls:'女婿',       note:'Informal: 丈母娘 zhàngmǔniáng' },
 };
 
-// ── Gender variants ───────────────────────────────────────────────────────────
-const GENDER = {
+// ── Japanese family data ──────────────────────────────────────────────────────
+const FM_JA = {
+  patGF: { h:'祖父', p:'そふ', e:"Father's father", c:'pat', calls:'孫・孫娘', note:'Informal: おじいさん (ojiisan)' },
+  patGM: { h:'祖母', p:'そぼ', e:"Father's mother", c:'pat', calls:'孫・孫娘', note:'Informal: おばあさん (obaasan)' },
+  matGF: { h:'祖父', p:'そふ', e:"Mother's father", c:'mat', calls:'孫・孫娘', note:'母方の祖父 (hahakata no sofu)' },
+  matGM: { h:'祖母', p:'そぼ', e:"Mother's mother", c:'mat', calls:'孫・孫娘', note:'母方の祖母 (hahakata no sobo)' },
+
+  patUncOld:  { h:'伯父', p:'おじ',   e:"Dad's older brother",      c:'pat', calls:'甥・姪', note:'Older than father: 伯父 (oji)' },
+  patUncOldW: { h:'伯母', p:'おば',   e:"Dad's older bro's wife",   c:'pat', calls:'甥・姪' },
+  patUncYng:  { h:'叔父', p:'おじ',   e:"Dad's younger brother",    c:'pat', calls:'甥・姪', note:'Younger than father: 叔父 (oji)' },
+  patUncYngW: { h:'叔母', p:'おば',   e:"Dad's younger bro's wife", c:'pat', calls:'甥・姪' },
+  father:     { h:'父',   p:'ちち',   e:'Father',                   c:'pat', calls:'息子・娘', note:'Own father: 父 (chichi). Addressing: お父さん (otōsan)' },
+  mother:     { h:'母',   p:'はは',   e:'Mother',                   c:'mat', calls:'息子・娘', note:'Own mother: 母 (haha). Addressing: お母さん (okāsan)' },
+  patAunt:    { h:'伯母', p:'おば',   e:"Dad's sister (older)",     c:'pat', calls:'甥・姪' },
+  patAuntH:   { h:'伯父', p:'おじ',   e:"Dad's sister's husband",   c:'pat', calls:'甥・姪' },
+
+  matUnc:     { h:'叔父', p:'おじ',   e:"Mum's brother",            c:'mat', calls:'甥・姪' },
+  matUncW:    { h:'叔母', p:'おば',   e:"Mum's brother's wife",     c:'mat', calls:'甥・姪' },
+  matAunt:    { h:'叔母', p:'おば',   e:"Mum's sister",             c:'mat', calls:'甥・姪' },
+  matAuntH:   { h:'叔父', p:'おじ',   e:"Mum's sister's husband",   c:'mat', calls:'甥・姪' },
+
+  me:         { h:'私',   p:'わたし', e:'Me',                       c:'me',  calls:'', note:'All terms from your perspective' },
+
+  olderBro:   { h:'兄',   p:'あに',     e:'Older brother',          c:'sib', calls:'弟・妹', note:'Addressing: お兄さん (oniisan)' },
+  olderBroW:  { h:'義姉', p:'ぎし',     e:"Older bro's wife",       c:'sib', calls:'弟・妹' },
+  olderSis:   { h:'姉',   p:'あね',     e:'Older sister',           c:'sib', calls:'弟・妹', note:'Addressing: お姉さん (onēsan)' },
+  olderSisH:  { h:'義兄', p:'ぎけい',   e:"Older sis's husband",    c:'sib', calls:'弟・妹' },
+
+  yngBro:     { h:'弟',   p:'おとうと', e:'Younger brother',        c:'sib', calls:'兄・姉' },
+  yngBroW:    { h:'義妹', p:'ぎまい',   e:"Younger bro's wife",     c:'sib', calls:'兄・姉' },
+  yngSis:     { h:'妹',   p:'いもうと', e:'Younger sister',         c:'sib', calls:'兄・姉' },
+  yngSisH:    { h:'義弟', p:'ぎてい',   e:"Younger sis's husband",  c:'sib', calls:'兄・姉' },
+
+  spouse:     { h:'妻',   p:'つま',     e:'Wife',                   c:'spouse', calls:'夫 (otto)', note:'Addressing: 奥さん (okusan)' },
+
+  son:        { h:'息子', p:'むすこ',   e:'Son',        c:'child', calls:'お父さん・お母さん' },
+  sonW:       { h:'嫁',   p:'よめ',     e:"Son's wife", c:'child', calls:'お父さん・お母さん', note:'Also: お嫁さん (oyomesan)' },
+  daughter:   { h:'娘',   p:'むすめ',   e:'Daughter',   c:'child', calls:'お父さん・お母さん' },
+  daughterH:  { h:'婿',   p:'むこ',     e:"Daughter's husband", c:'child', calls:'お父さん・お母さん', note:'Also: お婿さん (omukosan)' },
+
+  sonSon:  { h:'孫',   p:'まご',       e:"Son's son",        c:'child', calls:'おじいさん・おばあさん' },
+  sonDau:  { h:'孫娘', p:'まごむすめ', e:"Son's daughter",   c:'child', calls:'おじいさん・おばあさん' },
+  dauSon:  { h:'孫',   p:'まご',       e:"Daughter's son",   c:'child', calls:'おじいさん・おばあさん' },
+  dauDau:  { h:'孫娘', p:'まごむすめ', e:"Daughter's daughter", c:'child', calls:'おじいさん・おばあさん' },
+
+  inlawF:  { h:'義父', p:'ぎふ', e:"Wife's father",  c:'inlaw', calls:'婿 (muko)', note:'Addressing: お義父さん (otoosan)' },
+  inlawM:  { h:'義母', p:'ぎぼ', e:"Wife's mother",  c:'inlaw', calls:'嫁 (yome)', note:'Addressing: お義母さん (okaasan)' },
+};
+
+// ── Select active dataset ─────────────────────────────────────────────────────
+const FM = LANG === 'japanese' ? FM_JA : FM_ZH;
+
+// ── Chinese gender variants ───────────────────────────────────────────────────
+const GENDER_ZH = {
   male: {
     spouse: { h:'老婆', f:'妻子',  p:'lǎopó',    e:'Wife',             c:'spouse', calls:'老公/丈夫', note:'Formal: 妻子 qīzi' },
     inlawF: { h:'岳父', f:'岳父',  p:'yuèfù',    e:"Wife's father",    c:'inlaw',  calls:'女婿 nǚxu', note:'Informal: 丈人 zhàngrén' },
@@ -320,6 +385,24 @@ const GENDER = {
     label: "Husband's Parents 公婆",
   },
 };
+
+// ── Japanese gender variants ──────────────────────────────────────────────────
+const GENDER_JA = {
+  male: {
+    spouse: { h:'妻',  p:'つま',   e:'Wife',             c:'spouse', calls:'夫 (otto)', note:'Addressing: 奥さん (okusan)' },
+    inlawF: { h:'義父', p:'ぎふ', e:"Wife's father",    c:'inlaw',  calls:'婿 (muko)', note:'Addressing: お義父さん' },
+    inlawM: { h:'義母', p:'ぎぼ', e:"Wife's mother",    c:'inlaw',  calls:'嫁 (yome)', note:'Addressing: お義母さん' },
+    label: "Wife's Parents 義父母",
+  },
+  female: {
+    spouse: { h:'夫',  p:'おっと', e:'Husband',          c:'spouse', calls:'妻 (tsuma)', note:'Addressing: ご主人 (goshujin)' },
+    inlawF: { h:'義父', p:'ぎふ', e:"Husband's father", c:'inlaw',  calls:'嫁 (yome)',  note:'Addressing: お義父さん' },
+    inlawM: { h:'義母', p:'ぎぼ', e:"Husband's mother", c:'inlaw',  calls:'嫁 (yome)',  note:'Addressing: お義母さん' },
+    label: "Husband's Parents 義父母",
+  },
+};
+
+const GENDER = LANG === 'japanese' ? GENDER_JA : GENDER_ZH;
 
 let currentGender = 'male';
 let activeNodeKey  = null;

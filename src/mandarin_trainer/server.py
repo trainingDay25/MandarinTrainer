@@ -324,13 +324,30 @@ def _pinyin_collation(a, b):
     return (sa > sb) - (sa < sb)
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.create_collation('PINYIN', _pinyin_collation)
     return conn
 
+def _load_jp_dictionary(conn):
+    """Load jp_dictionary.json into the dictionary table (runs once, skipped if already loaded)."""
+    if conn.execute("SELECT COUNT(*) FROM dictionary WHERE language='japanese'").fetchone()[0] > 0:
+        return
+    jp_path = os.path.join(os.path.dirname(__file__), 'jp_dictionary.json')
+    if not os.path.exists(jp_path):
+        return
+    with open(jp_path, encoding='utf-8') as f:
+        entries = json.load(f)
+    conn.executemany(
+        "INSERT INTO dictionary (traditional, simplified, pinyin, english, language) VALUES (?,?,?,?,'japanese')",
+        [(e['word'], e['word'], e.get('romanization', ''), e.get('english_translation', ''))
+         for e in entries]
+    )
+
+
 def init_db():
     with get_db() as conn:
+        conn.execute('PRAGMA journal_mode=DELETE')
         conn.executescript('''
             CREATE TABLE IF NOT EXISTS words (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -446,18 +463,24 @@ def init_db():
             );
         ''')
 
-        # Dictionary table (populated by import_cedict.py)
+        # Dictionary table (populated by import_cedict.py / jp_dictionary.json)
         conn.executescript('''
             CREATE TABLE IF NOT EXISTS dictionary (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 traditional TEXT NOT NULL,
                 simplified  TEXT NOT NULL,
                 pinyin      TEXT,
-                english     TEXT
+                english     TEXT,
+                language    TEXT DEFAULT 'chinese'
             );
             CREATE INDEX IF NOT EXISTS idx_dict_simplified  ON dictionary(simplified);
             CREATE INDEX IF NOT EXISTS idx_dict_traditional ON dictionary(traditional);
         ''')
+        dict_cols = {r[1] for r in conn.execute('PRAGMA table_info(dictionary)').fetchall()}
+        if 'language' not in dict_cols:
+            conn.execute("ALTER TABLE dictionary ADD COLUMN language TEXT DEFAULT 'chinese'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_dict_language ON dictionary(language)")
+        _load_jp_dictionary(conn)
 
         # ── Users (multi-user support) ─────────────────────────────────────────
         conn.executescript('''
@@ -553,6 +576,11 @@ def init_db():
             );
         ''')
 
+        # Migrate game_plays: add plays count column
+        gp_cols = {r[1] for r in conn.execute('PRAGMA table_info(game_plays)').fetchall()}
+        if 'plays' not in gp_cols:
+            conn.execute('ALTER TABLE game_plays ADD COLUMN plays INTEGER DEFAULT 1')
+
         # One-time migration: seed from legacy grammar_points.favorited for trainingDay (id=1)
         seeded = conn.execute('SELECT COUNT(*) FROM grammar_favorites').fetchone()[0]
         if seeded == 0:
@@ -563,6 +591,33 @@ def init_db():
                 ''')
             except sqlite3.OperationalError:
                 pass  # grammar_points table may not exist yet
+
+        # Seed JLPT vocabulary from CSV files if not already present
+        # Stored levels: N5→1 (easiest), N4→2, N3→3, N2→4, N1→5 (hardest)
+        jlpt_count = conn.execute("SELECT COUNT(*) FROM words WHERE curriculum='jlpt'").fetchone()[0]
+        if jlpt_count == 0:
+            import csv as _csv
+            jap_dir = os.path.join(_MODULE_DIR, '..', '..', 'Jap')
+            for n_level, stored_level in [(5, 1), (4, 2), (3, 3), (2, 4), (1, 5)]:
+                csv_path = os.path.join(jap_dir, f'n{n_level}.csv')
+                if not os.path.exists(csv_path):
+                    continue
+                with open(csv_path, newline='', encoding='utf-8') as f:
+                    for row in _csv.DictReader(f):
+                        expr = (row.get('expression') or '').strip()
+                        read = (row.get('reading') or '').strip()
+                        mean = (row.get('meaning') or '').strip()
+                        if not expr:
+                            continue
+                        conn.execute(
+                            'INSERT OR IGNORE INTO words (hanzi, pinyin, english, hsk_level, curriculum) VALUES (?,?,?,?,?)',
+                            (expr, read, mean, stored_level, 'jlpt')
+                        )
+
+        # Migrate custom_lists: add language column
+        cl2_cols = {r[1] for r in conn.execute('PRAGMA table_info(custom_lists)').fetchall()}
+        if 'language' not in cl2_cols:
+            conn.execute("ALTER TABLE custom_lists ADD COLUMN language TEXT DEFAULT 'chinese'")
 
 
 # ── Time helpers ──────────────────────────────────────────────────────────────
@@ -594,25 +649,56 @@ AWARDS = [
     {'cat': 'words',     'key': 'words_5k',      'icon': '🌟', 'title': 'Fluency in Sight',   'desc': 'Learn 5,000 words',           'threshold': 5000},
     {'cat': 'words',     'key': 'words_10k',     'icon': '🎖', 'title': 'Linguist',           'desc': 'Learn 10,000 words',          'threshold': 10000},
     # ── Day streaks ──
-    {'cat': 'streak',    'key': 'streak_5',      'icon': '🔥', 'title': 'Warming Up',         'desc': '5-day study streak',          'threshold': 5},
-    {'cat': 'streak',    'key': 'streak_10',     'icon': '🔥', 'title': 'On Fire',            'desc': '10-day study streak',         'threshold': 10},
-    {'cat': 'streak',    'key': 'streak_50',     'icon': '🔥', 'title': 'Unstoppable',        'desc': '50-day study streak',         'threshold': 50},
-    {'cat': 'streak',    'key': 'streak_100',    'icon': '💥', 'title': 'Century Streak',     'desc': '100-day study streak',        'threshold': 100},
-    {'cat': 'streak',    'key': 'streak_365',    'icon': '🌈', 'title': 'Year of Study',      'desc': '365-day study streak',        'threshold': 365},
+    {'cat': 'streak',    'key': 'streak_5',        'icon': '🔥', 'title': 'Warming Up',         'desc': '5-day study streak',                            'threshold': 5},
+    {'cat': 'streak',    'key': 'streak_10',        'icon': '🔥', 'title': 'On Fire',            'desc': '10-day study streak',                           'threshold': 10},
+    {'cat': 'streak',    'key': 'streak_50',        'icon': '🔥', 'title': 'Unstoppable',        'desc': '50-day study streak',                           'threshold': 50},
+    {'cat': 'streak',    'key': 'streak_100',       'icon': '💥', 'title': 'Century Streak',     'desc': '100-day study streak',                          'threshold': 100},
+    {'cat': 'streak',    'key': 'streak_365',       'icon': '🌈', 'title': 'Year of Study',      'desc': '365-day study streak',                          'threshold': 365},
+    # ── Sessions & Consistency ──
+    {'cat': 'sessions',  'key': 'session_10',       'icon': '📅', 'title': 'First Habit',        'desc': 'Complete 10 study sessions',                    'threshold': 10},
+    {'cat': 'sessions',  'key': 'session_50',       'icon': '📅', 'title': 'Regular Student',    'desc': 'Complete 50 study sessions',                    'threshold': 50},
+    {'cat': 'sessions',  'key': 'session_100',      'icon': '🏅', 'title': 'Centurion',          'desc': 'Complete 100 study sessions',                   'threshold': 100},
+    {'cat': 'sessions',  'key': 'session_500',      'icon': '💫', 'title': 'Devoted Learner',    'desc': 'Complete 500 study sessions',                   'threshold': 500},
+    {'cat': 'sessions',  'key': 'one_month',        'icon': '🗓️', 'title': 'One Month',          'desc': '30 different days with at least one activity',  'threshold': 30},
+    {'cat': 'sessions',  'key': 'early_bird',       'icon': '🌅', 'title': 'Early Bird',         'desc': 'Study before 7 AM'},
+    {'cat': 'sessions',  'key': 'night_owl',        'icon': '🌙', 'title': 'Night Owl',          'desc': 'Study after 11 PM'},
+    {'cat': 'sessions',  'key': 'flawless',         'icon': '🎯', 'title': 'Flawless',           'desc': 'Complete a session with no wrong answers'},
+    {'cat': 'sessions',  'key': 'marathon',         'icon': '💪', 'title': 'Marathon',           'desc': 'Review 100 or more cards in a single session'},
+    {'cat': 'sessions',  'key': 'comeback',         'icon': '🏁', 'title': 'Comeback',           'desc': 'Resume studying after a 7-day break'},
+    {'cat': 'sessions',  'key': 'weekend_warrior',  'icon': '🏖️', 'title': 'Weekend Warrior',    'desc': 'Study on both Saturday and Sunday of the same weekend'},
+    {'cat': 'sessions',  'key': 'rainbow_week',     'icon': '🌈', 'title': 'Full Week',          'desc': 'Study every single day of a calendar week'},
+    {'cat': 'sessions',  'key': 'true_beginner',    'icon': '🤔', 'title': 'True Beginner',      'desc': 'Get a wrong answer in your very first session'},
     # ── Map ──
-    {'cat': 'map',       'key': 'map_circle_1',  'icon': '🗺', 'title': 'First Circle',       'desc': 'Complete your first map circle'},
-    {'cat': 'map',       'key': 'map_skip',      'icon': '⚡', 'title': 'Fast Lane',          'desc': 'Pass circle 20 to unlock all circles of a level at once'},
-    {'cat': 'map',       'key': 'map_level_done','icon': '🏆', 'title': 'Level Master',       'desc': 'Complete all 20 circles of any level'},
-    {'cat': 'map',       'key': 'map_classic',   'icon': '🎓', 'title': 'Classic HSK Complete','desc': 'Complete all Classic HSK levels on the map'},
-    {'cat': 'map',       'key': 'map_hsk3',      'icon': '🎓', 'title': 'New HSK 3.0 Complete','desc': 'Complete all New HSK 3.0 levels on the map'},
+    {'cat': 'map',       'key': 'map_circle_1',     'icon': '🗺️', 'title': 'First Circle',       'desc': 'Complete your first map circle'},
+    {'cat': 'map',       'key': 'map_skip',         'icon': '⚡', 'title': 'Fast Lane',          'desc': 'Pass circle 20 to unlock all circles of a level at once'},
+    {'cat': 'map',       'key': 'map_level_done',   'icon': '🏆', 'title': 'Level Master',       'desc': 'Complete all 20 circles of any level'},
+    {'cat': 'map',       'key': 'map_classic',      'icon': '🎓', 'title': 'Classic HSK Complete','desc': 'Complete all Classic HSK levels on the map'},
+    {'cat': 'map',       'key': 'map_hsk3',         'icon': '🎓', 'title': 'New HSK 3.0 Complete','desc': 'Complete all New HSK 3.0 levels on the map'},
+    {'cat': 'map',       'key': 'map_jlpt',         'icon': '🗾', 'title': 'JLPT Complete',        'desc': 'Complete all JLPT levels on the map'},
+    {'cat': 'map',       'key': 'explorer_10',      'icon': '🗺️', 'title': 'Explorer',           'desc': 'Pass 10 map circles',                           'threshold': 10},
+    {'cat': 'map',       'key': 'explorer_25',      'icon': '🧭', 'title': 'Trailblazer',        'desc': 'Pass 25 map circles',                           'threshold': 25},
+    {'cat': 'map',       'key': 'explorer_50',      'icon': '🌍', 'title': 'Globetrotter',       'desc': 'Pass 50 map circles',                           'threshold': 50},
+    {'cat': 'map',       'key': 'explorer_100',     'icon': '🚀', 'title': 'Century Mapper',     'desc': 'Pass 100 map circles',                          'threshold': 100},
+    {'cat': 'map',       'key': 'perfect_circle',   'icon': '💎', 'title': 'Perfect Circle',     'desc': 'Score 100% on any map circle'},
+    # ── Games ──
+    {'cat': 'games',     'key': 'all_games',        'icon': '🎮', 'title': 'Game On',            'desc': 'Play all 6 game types at least once'},
+    {'cat': 'games',     'key': 'game_bingo',       'icon': '🔊', 'title': 'Bingo Pro',          'desc': 'Play Audio Bingo 10 times',                     'threshold': 10},
+    {'cat': 'games',     'key': 'game_tone',        'icon': '🎵', 'title': 'Tone Master',        'desc': 'Play Tone ID 10 times',                         'threshold': 10},
+    {'cat': 'games',     'key': 'game_match',       'icon': '🃏', 'title': 'Card Sharp',         'desc': 'Play Match Pairs 10 times',                     'threshold': 10},
+    {'cat': 'games',     'key': 'game_mc',          'icon': '📝', 'title': 'The Scholar',        'desc': 'Play Multiple Choice 10 times',                 'threshold': 10},
+    {'cat': 'games',     'key': 'game_draw',        'icon': '✍️', 'title': 'Calligrapher',       'desc': 'Play Draw Hanzi 10 times',                      'threshold': 10},
+    {'cat': 'games',     'key': 'game_scram',       'icon': '🔀', 'title': 'Scramble King',      'desc': 'Play Scrambled 10 times',                       'threshold': 10},
     # ── Misc / event ──
-    {'cat': 'misc',      'key': 'first_user',    'icon': '👋', 'title': 'Welcome!',           'desc': 'Create a user account'},
-    {'cat': 'misc',      'key': 'custom_list',   'icon': '📝', 'title': 'Curator',            'desc': 'Create a custom list and add at least one word'},
-    {'cat': 'misc',      'key': 'exported',      'icon': '💾', 'title': 'Backed Up',          'desc': 'Export your progress'},
-    {'cat': 'misc',      'key': 'imported',      'icon': '📥', 'title': 'Fresh Start',        'desc': 'Import progress from a file'},
-    {'cat': 'misc',      'key': 'anki_imported', 'icon': '📦', 'title': 'Deck Builder',       'desc': 'Import an Anki deck'},
-    {'cat': 'misc',      'key': 'grammar_fav',   'icon': '📖', 'title': 'Grammar Nerd',       'desc': 'Add a grammar lesson to favourites'},
-    {'cat': 'misc',      'key': 'all_games',     'icon': '🎮', 'title': 'Game On',            'desc': 'Play all 6 games at least once'},
+    {'cat': 'misc',      'key': 'first_user',       'icon': '👋', 'title': 'Welcome!',           'desc': 'Create a user account'},
+    {'cat': 'misc',      'key': 'custom_list',      'icon': '📝', 'title': 'Curator',            'desc': 'Create a custom list and add at least one word'},
+    {'cat': 'misc',      'key': 'list_maker_3',     'icon': '📋', 'title': 'List Maker',         'desc': 'Create 3 custom lists'},
+    {'cat': 'misc',      'key': 'big_deck',         'icon': '📦', 'title': 'Big Deck',           'desc': 'Have a custom list with 20+ words'},
+    {'cat': 'misc',      'key': 'exported',         'icon': '💾', 'title': 'Backed Up',          'desc': 'Export your progress'},
+    {'cat': 'misc',      'key': 'imported',         'icon': '📥', 'title': 'Fresh Start',        'desc': 'Import progress from a file'},
+    {'cat': 'misc',      'key': 'anki_imported',    'icon': '📦', 'title': 'Deck Builder',       'desc': 'Import an Anki deck'},
+    {'cat': 'misc',      'key': 'grammar_fav',      'icon': '📖', 'title': 'Grammar Nerd',       'desc': 'Add a grammar lesson to favourites'},
+    {'cat': 'misc',      'key': 'grammar_fan',      'icon': '📖', 'title': 'Grammar Fan',        'desc': 'Add 5 grammar lessons to favourites',           'threshold': 5},
+    {'cat': 'misc',      'key': 'grammar_master',   'icon': '📚', 'title': 'Grammar Master',     'desc': 'Add 10 grammar lessons to favourites',          'threshold': 10},
     # ── Level mastery — Classic HSK ──
     {'cat': 'mastery',   'key': 'known_classic_1','icon': '⭐', 'title': 'HSK 1 Complete',    'desc': 'Know all Classic HSK 1 words'},
     {'cat': 'mastery',   'key': 'known_classic_2','icon': '⭐', 'title': 'HSK 2 Complete',    'desc': 'Know all Classic HSK 2 words'},
@@ -628,6 +714,12 @@ AWARDS = [
     {'cat': 'mastery',   'key': 'known_hsk3_5',  'icon': '🌟', 'title': 'New HSK 5 Complete', 'desc': 'Know all New HSK 3.0 Level 5 words'},
     {'cat': 'mastery',   'key': 'known_hsk3_6',  'icon': '🌟', 'title': 'New HSK 6 Complete', 'desc': 'Know all New HSK 3.0 Level 6 words'},
     {'cat': 'mastery',   'key': 'known_hsk3_7',  'icon': '👑', 'title': 'New HSK 7-9 Complete','desc': 'Know all New HSK 3.0 Level 7-9 words'},
+    # ── Level mastery — JLPT ──
+    {'cat': 'mastery',   'key': 'known_jlpt_1',  'icon': '⭐', 'title': 'N5 Complete',          'desc': 'Know all JLPT N5 words'},
+    {'cat': 'mastery',   'key': 'known_jlpt_2',  'icon': '⭐', 'title': 'N4 Complete',          'desc': 'Know all JLPT N4 words'},
+    {'cat': 'mastery',   'key': 'known_jlpt_3',  'icon': '🌟', 'title': 'N3 Complete',          'desc': 'Know all JLPT N3 words'},
+    {'cat': 'mastery',   'key': 'known_jlpt_4',  'icon': '🌟', 'title': 'N2 Complete',          'desc': 'Know all JLPT N2 words'},
+    {'cat': 'mastery',   'key': 'known_jlpt_5',  'icon': '👑', 'title': 'N1 Complete',          'desc': 'Know all JLPT N1 words'},
 ]
 
 AWARD_KEYS = {a['key'] for a in AWARDS}
@@ -645,7 +737,7 @@ def grant_award(conn, uid, key):
 
 def check_lazy_awards(conn, uid):
     """Check all milestone awards and grant any not yet earned. Called on awards page load."""
-    from datetime import date as date_cls
+    from datetime import date as date_cls, timedelta as _td
 
     # ── Reviews ──────────────────────────────────────────────────────────────
     total_reviews = conn.execute('''
@@ -751,12 +843,33 @@ def check_lazy_awards(conn, uid):
         if hsk3_done:
             grant_award(conn, uid, 'map_hsk3')
 
+    # ── Map: all JLPT levels complete ────────────────────────────────────────
+    jlpt_levels = conn.execute(
+        "SELECT DISTINCT hsk_level FROM words WHERE curriculum = 'jlpt' ORDER BY hsk_level"
+    ).fetchall()
+    if jlpt_levels:
+        jlpt_done = all(
+            conn.execute('''
+                SELECT COUNT(*) FROM map_progress
+                WHERE user_id=? AND curriculum='jlpt' AND level=? AND passed=1
+            ''', (uid, r[0])).fetchone()[0] == 20
+            for r in jlpt_levels
+        )
+        if jlpt_done:
+            grant_award(conn, uid, 'map_jlpt')
+
     # ── All games played ──────────────────────────────────────────────────────
-    played = {r[0] for r in conn.execute(
-        'SELECT game_type FROM game_plays WHERE user_id = ?', (uid,)
-    ).fetchall()}
+    game_rows = conn.execute(
+        'SELECT game_type, plays FROM game_plays WHERE user_id = ?', (uid,)
+    ).fetchall()
+    played = {r['game_type'] for r in game_rows}
     if played >= ALL_GAME_TYPES:
         grant_award(conn, uid, 'all_games')
+    game_key_map = {'bingo': 'game_bingo', 'tone': 'game_tone', 'match': 'game_match',
+                    'mc': 'game_mc', 'draw': 'game_draw', 'scram': 'game_scram'}
+    for r in game_rows:
+        if r['plays'] >= 10 and r['game_type'] in game_key_map:
+            grant_award(conn, uid, game_key_map[r['game_type']])
 
     # ── Level mastery ─────────────────────────────────────────────────────────
     mastery_map = {
@@ -764,6 +877,8 @@ def check_lazy_awards(conn, uid):
                     (4,'known_classic_4'),(5,'known_classic_5'),(6,'known_classic_6')],
         'hsk3':    [(1,'known_hsk3_1'),(2,'known_hsk3_2'),(3,'known_hsk3_3'),
                     (4,'known_hsk3_4'),(5,'known_hsk3_5'),(6,'known_hsk3_6'),(7,'known_hsk3_7')],
+        'jlpt':    [(1,'known_jlpt_1'),(2,'known_jlpt_2'),(3,'known_jlpt_3'),
+                    (4,'known_jlpt_4'),(5,'known_jlpt_5')],
     }
     for curr, levels in mastery_map.items():
         for lvl, key in levels:
@@ -779,6 +894,139 @@ def check_lazy_awards(conn, uid):
             ''', (uid, curr, lvl)).fetchone()[0]
             if known_in_level >= total_in_level:
                 grant_award(conn, uid, key)
+
+    # ── Sessions milestones ───────────────────────────────────────────────────
+    total_sessions = conn.execute(
+        'SELECT COUNT(*) FROM session_logs WHERE user_id = ?', (uid,)
+    ).fetchone()[0]
+    for threshold, key in [(10,'session_10'),(50,'session_50'),(100,'session_100'),(500,'session_500')]:
+        if total_sessions >= threshold:
+            grant_award(conn, uid, key)
+
+    # ── Time-of-day sessions ─────────────────────────────────────────────────
+    if conn.execute(
+        "SELECT 1 FROM session_logs WHERE user_id=? AND CAST(strftime('%H',started_at) AS INTEGER) < 7 LIMIT 1",
+        (uid,)
+    ).fetchone():
+        grant_award(conn, uid, 'early_bird')
+    if conn.execute(
+        "SELECT 1 FROM session_logs WHERE user_id=? AND CAST(strftime('%H',started_at) AS INTEGER) >= 23 LIMIT 1",
+        (uid,)
+    ).fetchone():
+        grant_award(conn, uid, 'night_owl')
+
+    # ── Flawless session ─────────────────────────────────────────────────────
+    if conn.execute(
+        '''SELECT 1 FROM session_logs WHERE user_id=?
+           AND CAST(wrong_count AS INTEGER) = 0
+           AND (CAST(easy_count AS INTEGER) + CAST(medium_count AS INTEGER)) > 0
+           LIMIT 1''',
+        (uid,)
+    ).fetchone():
+        grant_award(conn, uid, 'flawless')
+
+    # ── Marathon session ─────────────────────────────────────────────────────
+    if conn.execute(
+        '''SELECT 1 FROM session_logs WHERE user_id=?
+           AND (CAST(easy_count AS INTEGER) + CAST(medium_count AS INTEGER) +
+                CAST(wrong_count AS INTEGER)) >= 100
+           LIMIT 1''',
+        (uid,)
+    ).fetchone():
+        grant_award(conn, uid, 'marathon')
+
+    # ── True Beginner (wrong answer in first session) ─────────────────────────
+    first_sess = conn.execute(
+        'SELECT wrong_count FROM session_logs WHERE user_id=? ORDER BY started_at ASC LIMIT 1',
+        (uid,)
+    ).fetchone()
+    if first_sess and int(first_sess['wrong_count'] or 0) > 0:
+        grant_award(conn, uid, 'true_beginner')
+
+    # ── All activity dates (sessions + map passes) ────────────────────────────
+    all_date_rows = conn.execute('''
+        SELECT DISTINCT DATE(d) AS d FROM (
+            SELECT started_at AS d FROM session_logs WHERE user_id = ?
+            UNION
+            SELECT passed_at AS d FROM map_progress
+            WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
+        ) ORDER BY d
+    ''', (uid, uid)).fetchall()
+    study_day_set = {date_cls.fromisoformat(r['d']) for r in all_date_rows}
+    dates_asc = [date_cls.fromisoformat(r['d']) for r in all_date_rows]
+
+    # ── One Month (30 distinct activity days) ─────────────────────────────────
+    if len(dates_asc) >= 30:
+        grant_award(conn, uid, 'one_month')
+
+    # ── Comeback (7+ day gap then resumed) ───────────────────────────────────
+    for i in range(1, len(dates_asc)):
+        if (dates_asc[i] - dates_asc[i - 1]).days >= 7:
+            grant_award(conn, uid, 'comeback')
+            break
+
+    # ── Weekend Warrior (Saturday + Sunday same weekend) ──────────────────────
+    for d in study_day_set:
+        if d.weekday() == 5 and (d + _td(days=1)) in study_day_set:
+            grant_award(conn, uid, 'weekend_warrior')
+            break
+
+    # ── Full Week (all 7 days of any Mon–Sun week) ────────────────────────────
+    for d in study_day_set:
+        week_start = d - _td(days=d.weekday())
+        if all(week_start + _td(days=i) in study_day_set for i in range(7)):
+            grant_award(conn, uid, 'rainbow_week')
+            break
+
+    # ── Map: explorer circle counts ───────────────────────────────────────────
+    total_circles = conn.execute(
+        'SELECT COUNT(*) FROM map_progress WHERE user_id=? AND passed=1', (uid,)
+    ).fetchone()[0]
+    for threshold, key in [(10,'explorer_10'),(25,'explorer_25'),(50,'explorer_50'),(100,'explorer_100')]:
+        if total_circles >= threshold:
+            grant_award(conn, uid, key)
+
+    # ── Map: perfect circle (100% score) ─────────────────────────────────────
+    if conn.execute(
+        'SELECT 1 FROM map_progress WHERE user_id=? AND best_score >= 1.0 AND passed=1 LIMIT 1',
+        (uid,)
+    ).fetchone():
+        grant_award(conn, uid, 'perfect_circle')
+
+    # ── Grammar favourites ────────────────────────────────────────────────────
+    try:
+        grammar_count = conn.execute(
+            'SELECT COUNT(*) FROM grammar_favorites WHERE user_id=?', (uid,)
+        ).fetchone()[0]
+        for threshold, key in [(5,'grammar_fan'),(10,'grammar_master')]:
+            if grammar_count >= threshold:
+                grant_award(conn, uid, key)
+    except Exception:
+        pass
+
+    # ── Custom lists ──────────────────────────────────────────────────────────
+    list_count = conn.execute(
+        'SELECT COUNT(*) FROM custom_lists WHERE user_id=?', (uid,)
+    ).fetchone()[0]
+    if conn.execute('''
+        SELECT 1 FROM custom_list_words clw
+        JOIN custom_lists cl ON cl.id = clw.list_id
+        WHERE cl.user_id = ? LIMIT 1
+    ''', (uid,)).fetchone():
+        grant_award(conn, uid, 'custom_list')
+    if list_count >= 3:
+        grant_award(conn, uid, 'list_maker_3')
+    max_list_words = conn.execute('''
+        SELECT COALESCE(MAX(cnt), 0) FROM (
+            SELECT COUNT(*) AS cnt
+            FROM custom_list_words clw
+            JOIN custom_lists cl ON cl.id = clw.list_id
+            WHERE cl.user_id = ?
+            GROUP BY clw.list_id
+        )
+    ''', (uid,)).fetchone()[0]
+    if max_list_words >= 20:
+        grant_award(conn, uid, 'big_deck')
 
 
 _CURR_LABELS = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'}
@@ -801,6 +1049,7 @@ def get_hsk_labels(conn, hanzi: str) -> list:
 
 
 _CJK_RE     = re.compile(r'[一-鿿]')
+_KANA_RE    = re.compile(r'[぀-ヿ]')   # hiragana + katakana
 _vocab_set  = set()   # populated by _init_jieba()
 _max_word   = 1
 
@@ -853,6 +1102,45 @@ def segment_hanzi(text: str) -> list[str]:
         else:
             result.append(seg)
     return result if result else [c for c in text if _CJK_RE.match(c)]
+
+def segment_japanese(text: str) -> list[str]:
+    """Segment a Japanese sentence into alternating kanji-run / kana-run tokens.
+
+    Keeps consecutive kanji together (e.g. 友達) and consecutive kana together
+    (e.g. いました), dropping punctuation/spaces.  Results are used as scramble
+    tiles so the player reassembles the sentence word-by-word.
+    """
+    if not text:
+        return []
+    tokens: list[str] = []
+    current: list[str] = []
+    cur_type: str | None = None
+    for c in text:
+        if _CJK_RE.match(c):
+            t = 'cjk'
+        elif _KANA_RE.match(c):
+            t = 'kana'
+        else:
+            t = None
+        if t is None:
+            if current:
+                tokens.append(''.join(current))
+                current = []
+                cur_type = None
+        elif t == cur_type:
+            current.append(c)
+        else:
+            if current:
+                tokens.append(''.join(current))
+            current = [c]
+            cur_type = t
+    if current:
+        tokens.append(''.join(current))
+    if len(tokens) > 1:
+        return tokens
+    # Fallback: every Japanese character as its own tile
+    return [c for c in text if _CJK_RE.match(c) or _KANA_RE.match(c)]
+
 
 def make_cloze_prompt(hanzi: str, example: str) -> str:
     if not example or not hanzi or hanzi not in example:
@@ -945,33 +1233,71 @@ def inject_sidebar():
                 due_total = conn.execute(
                     "SELECT COUNT(*) FROM progress WHERE due_at <= ? AND user_id = ?", (now, uid)
                 ).fetchone()[0]
+                valid_cur = get_curricula()
+                ph_cur = ','.join('?' * len(valid_cur))
                 new_total = conn.execute(
-                    """SELECT COUNT(*) FROM words w
+                    f"""SELECT COUNT(*) FROM words w
                        LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
-                       WHERE p.word_id IS NULL AND w.curriculum != 'custom'""", (uid,)
+                       WHERE p.word_id IS NULL AND w.curriculum IN ({ph_cur})""",
+                    (uid, *valid_cur)
                 ).fetchone()[0]
             else:
                 due_total = 0
                 new_total = 0
-        return dict(sidebar_due=due_total, sidebar_new=new_total, current_user=current_user_name)
+        return dict(sidebar_due=due_total, sidebar_new=new_total, current_user=current_user_name, current_language=get_language())
     except Exception:
-        return dict(sidebar_due=0, sidebar_new=0, current_user=None)
+        return dict(sidebar_due=0, sidebar_new=0, current_user=None, current_language='chinese')
+
+# ── Language helpers ──────────────────────────────────────────────────────────
+
+def get_language():
+    return session.get('language', 'chinese')
+
+def get_curricula():
+    if get_language() == 'japanese':
+        return ('jlpt',)
+    return ('classic', 'hsk3')
+
+def level_label(level: int) -> str:
+    """Return display label for an hsk_level integer given the active language."""
+    if get_language() == 'japanese':
+        return f'N{6 - level}'  # stored 1→N5, 2→N4, 3→N3, 4→N2, 5→N1
+    return str(level)
+
+app.jinja_env.globals['level_label'] = level_label
+app.jinja_env.globals['get_language'] = get_language
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.route('/set-language/<lang>')
+def set_language(lang):
+    if lang in ('chinese', 'japanese'):
+        session['language'] = lang
+    raw_next = request.args.get('next', '/')
+    next_url = raw_next if (raw_next.startswith('/') and not raw_next.startswith('//')) else '/'
+    return redirect(next_url)
+
 
 @app.route('/')
 def index():
     uid = get_user_id()
     if not uid:
         return redirect('/users')
-    curriculum = request.args.get('curriculum', 'classic')
+    lang = get_language()
+    valid_curricula = get_curricula()
+    default_curriculum = valid_curricula[0]
+    curriculum = request.args.get('curriculum', default_curriculum)
+    if curriculum not in valid_curricula and curriculum != 'custom':
+        curriculum = default_curriculum
     now = now_str()
     with get_db() as conn:
-        # Build curricula tab list
-        curricula = [r[0] for r in conn.execute(
-            "SELECT DISTINCT curriculum FROM words WHERE curriculum NOT IN ('custom','anki') ORDER BY curriculum"
-        ).fetchall()]
-        if conn.execute('SELECT COUNT(*) FROM custom_lists WHERE user_id = ?', (uid,)).fetchone()[0] > 0:
+        # Build curricula tab list — only those relevant to the active language
+        curricula = [c for c in valid_curricula if conn.execute(
+            'SELECT 1 FROM words WHERE curriculum=? LIMIT 1', (c,)
+        ).fetchone()]
+        if conn.execute(
+            "SELECT COUNT(*) FROM custom_lists WHERE user_id=? AND language=?", (uid, lang)
+        ).fetchone()[0] > 0:
             curricula.append('custom')
 
         if curriculum == 'custom':
@@ -984,10 +1310,10 @@ def index():
                 FROM custom_lists cl
                 LEFT JOIN custom_list_words clw ON cl.id = clw.list_id
                 LEFT JOIN progress p ON clw.word_id = p.word_id AND p.user_id = ?
-                WHERE cl.user_id = ?
+                WHERE cl.user_id = ? AND cl.language = ?
                 GROUP BY cl.id
                 ORDER BY cl.name
-            ''', (now, uid, uid)).fetchall()
+            ''', (now, uid, uid, lang)).fetchall()
             custom_lists = [dict(r) for r in cl_rows]
             total   = sum(cl['total']   for cl in custom_lists)
             due_cnt = sum(cl['due_cnt'] for cl in custom_lists)
@@ -1025,7 +1351,7 @@ def index():
 
     return render_template('index.html', total=total, new_cnt=new_cnt, due_cnt=due_cnt,
                            hsk_stats=hsk_stats, custom_lists=custom_lists,
-                           curriculum=curriculum, curricula=curricula)
+                           curriculum=curriculum, curricula=curricula, lang=lang)
 
 
 @app.route('/start', methods=['POST'])
@@ -1548,10 +1874,11 @@ def debug_sentences():
 
 @app.route('/game')
 def game():
+    valid_curricula = get_curricula()
     with get_db() as conn:
-        curricula = [r[0] for r in conn.execute(
-            "SELECT DISTINCT curriculum FROM words WHERE curriculum NOT IN ('custom','anki') ORDER BY curriculum"
-        ).fetchall()]
+        curricula = [c for c in valid_curricula if conn.execute(
+            'SELECT 1 FROM words WHERE curriculum=? LIMIT 1', (c,)
+        ).fetchone()]
         level_counts = {}
         for cur in curricula:
             lvls = [r[0] for r in conn.execute(
@@ -1560,7 +1887,8 @@ def game():
             ).fetchall()]
             level_counts[cur] = lvls
     return render_template('game.html', curricula=curricula,
-                           level_counts_json=json.dumps(level_counts))
+                           level_counts_json=json.dumps(level_counts),
+                           lang=get_language())
 
 
 @app.route('/api/game/log', methods=['POST'])
@@ -1573,9 +1901,20 @@ def api_game_log():
         return jsonify({'ok': False})
     with get_db() as conn:
         conn.execute(
-            'INSERT OR IGNORE INTO game_plays (user_id, game_type) VALUES (?, ?)',
+            '''INSERT INTO game_plays (user_id, game_type, plays) VALUES (?, ?, 1)
+               ON CONFLICT(user_id, game_type) DO UPDATE SET plays = plays + 1''',
             (uid, game_type)
         )
+        plays = conn.execute(
+            'SELECT plays FROM game_plays WHERE user_id=? AND game_type=?', (uid, game_type)
+        ).fetchone()['plays']
+        game_key_map = {'bingo': 'game_bingo', 'tone': 'game_tone', 'match': 'game_match',
+                        'mc': 'game_mc', 'draw': 'game_draw', 'scram': 'game_scram'}
+        if plays >= 10 and game_type in game_key_map:
+            grant_award(conn, uid, game_key_map[game_type])
+        played = {r[0] for r in conn.execute('SELECT game_type FROM game_plays WHERE user_id=?', (uid,)).fetchall()}
+        if played >= ALL_GAME_TYPES:
+            grant_award(conn, uid, 'all_games')
     return jsonify({'ok': True})
 
 
@@ -1607,6 +1946,9 @@ def api_game_words():
             filters + [count]
         ).fetchall()
 
+    is_japanese = (curriculum == 'jlpt')
+    segmenter   = segment_japanese if is_japanese else segment_hanzi
+
     result = []
     for r in rows:
         opts, correct_idx = generate_tone_options(r['pinyin'] or '')
@@ -1618,7 +1960,7 @@ def api_game_words():
             'example_hanzi':    r['example_hanzi'],
             'example_pinyin':   r['example_pinyin'],
             'example_english':  r['example_english'],
-            'example_segments': segment_hanzi(r['example_hanzi'] or ''),
+            'example_segments': segmenter(r['example_hanzi'] or ''),
             'tone_options':     opts,
             'tone_correct':     correct_idx,
         })
@@ -1630,8 +1972,13 @@ def words():
     uid        = get_user_id()
     if not uid:
         return redirect('/users')
+    lang       = get_language()
+    valid_curricula = get_curricula()
+    default_curriculum = valid_curricula[0]
     hsk        = request.args.get('hsk', '1')
-    curriculum = request.args.get('curriculum', 'classic')
+    curriculum = request.args.get('curriculum', default_curriculum)
+    if curriculum not in valid_curricula and curriculum != 'custom':
+        curriculum = default_curriculum
     raw_lid    = request.args.get('list_id', '').strip()
     list_id    = int(raw_lid) if raw_lid.isdigit() else None
 
@@ -1652,19 +1999,22 @@ def words():
                                    level_counts=[], curricula=[],
                                    list_id=list_id,
                                    list_name=lst['name'] if lst else 'Custom list',
-                                   custom_lists=[], active_custom_list_id=None, active_custom_list_name=None)
+                                   custom_lists=[], active_custom_list_id=None,
+                                   active_custom_list_name=None, lang=lang)
 
-        # ── Build tab-bar curricula for all non-standalone views ──────────────
-        curricula = [r[0] for r in conn.execute(
-            "SELECT DISTINCT curriculum FROM words WHERE curriculum NOT IN ('custom','anki') ORDER BY curriculum"
-        ).fetchall()]
-        if conn.execute('SELECT COUNT(*) FROM custom_lists WHERE user_id = ?', (uid,)).fetchone()[0] > 0:
+        # ── Build tab-bar curricula — filtered by active language ─────────────
+        curricula = [c for c in valid_curricula if conn.execute(
+            'SELECT 1 FROM words WHERE curriculum=? LIMIT 1', (c,)
+        ).fetchone()]
+        if conn.execute(
+            "SELECT COUNT(*) FROM custom_lists WHERE user_id=? AND language=?", (uid, lang)
+        ).fetchone()[0] > 0:
             curricula.append('custom')
 
         # ── Custom Lists browse view ───────────────────────────────────────────
         if curriculum == 'custom':
             cl_rows = conn.execute(
-                'SELECT id, name FROM custom_lists WHERE user_id = ? ORDER BY name', (uid,)
+                'SELECT id, name FROM custom_lists WHERE user_id = ? AND language = ? ORDER BY name', (uid, lang)
             ).fetchall()
             custom_lists = [dict(r) for r in cl_rows]
 
@@ -1697,7 +2047,7 @@ def words():
                                    list_id=None, list_name=None,
                                    custom_lists=custom_lists,
                                    active_custom_list_id=list_id,
-                                   active_custom_list_name=active_list_name)
+                                   active_custom_list_name=active_list_name, lang=lang)
 
         # ── Standard curriculum view (classic / hsk3) ─────────────────────────
         level_counts = conn.execute('''
@@ -1733,7 +2083,8 @@ def words():
                            active_hsk=hsk, active_curriculum=curriculum,
                            level_counts=level_counts, curricula=curricula,
                            list_id=None, list_name=None,
-                           custom_lists=[], active_custom_list_id=None, active_custom_list_name=None)
+                           custom_lists=[], active_custom_list_id=None,
+                           active_custom_list_name=None, lang=lang)
 
 
 @app.route('/grammar')
@@ -1820,17 +2171,21 @@ def stats():
     uid = get_user_id()
     if not uid:
         return redirect('/users')
+    lang      = get_language()
+    curricula = get_curricula()
+    cur_ph    = ','.join('?' * len(curricula))
     with get_db() as conn:
         # ── 1. Top line numbers ───────────────────────────────────────────────
-        known_total = conn.execute('''
+        known_total = conn.execute(f'''
             SELECT COUNT(*) FROM (
                 SELECT DISTINCT w.hanzi, w.pinyin
                 FROM progress p JOIN words w ON w.id = p.word_id
                 WHERE p.interval_step >= 6 AND p.user_id = ?
+                AND w.curriculum IN ({cur_ph})
             )
-        ''', (uid,)).fetchone()[0]
+        ''', (uid, *curricula)).fetchone()[0]
 
-        ws_row = conn.execute('''
+        ws_row = conn.execute(f'''
             SELECT COUNT(*)                                                              AS total,
                    COALESCE(SUM(CASE WHEN interval_step >= 6    THEN 1 ELSE 0 END), 0) AS known,
                    COALESCE(SUM(CASE WHEN last_grade = 'easy'   THEN 1 ELSE 0 END), 0) AS easy,
@@ -1841,10 +2196,10 @@ def stats():
                        MIN(p.last_grade)    AS last_grade
                 FROM progress p
                 JOIN words w ON w.id = p.word_id
-                WHERE p.user_id = ?
+                WHERE p.user_id = ? AND w.curriculum IN ({cur_ph})
                 GROUP BY w.hanzi, w.pinyin
             )
-        ''', (uid,)).fetchone()
+        ''', (uid, *curricula)).fetchone()
         _ws_total        = ws_row['total'] or 1
         _ws_easy_nk      = max(0, ws_row['easy'] - ws_row['known'])
         word_state_bars  = {
@@ -1869,14 +2224,18 @@ def stats():
         ''', (uid,)).fetchone()
         total_reviews = totals['easy'] + totals['medium'] + totals['wrong']
 
-        session_dates = conn.execute('''
+        session_dates = conn.execute(f'''
             SELECT DISTINCT DATE(d) AS d FROM (
-                SELECT started_at AS d FROM session_logs WHERE user_id = ?
+                SELECT p.last_seen AS d
+                FROM progress p JOIN words w ON w.id = p.word_id
+                WHERE p.user_id = ? AND w.curriculum IN ({cur_ph})
+                AND p.last_seen IS NOT NULL
                 UNION
-                SELECT passed_at  AS d FROM map_progress
+                SELECT passed_at AS d FROM map_progress
                 WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
+                AND curriculum IN ({cur_ph})
             ) ORDER BY d DESC
-        ''', (uid, uid)).fetchall()
+        ''', (uid, *curricula, uid, *curricula)).fetchall()
         streak = 0
         if session_dates:
             most_recent = date_cls.fromisoformat(session_dates[0]['d'])
@@ -1893,7 +2252,7 @@ def stats():
         retention_pct = round(total_correct / total_reviews * 100) if total_reviews else 0
 
         # ── 3. Progress by level ──────────────────────────────────────────────
-        level_rows = conn.execute('''
+        level_rows = conn.execute(f'''
             SELECT w.curriculum, w.hsk_level,
                 COUNT(*) AS total,
                 COALESCE(SUM(CASE WHEN p.word_id IS NULL THEN 1 ELSE 0 END), 0)            AS new_cnt,
@@ -1903,12 +2262,12 @@ def stats():
                 COALESCE(SUM(CASE WHEN p.interval_step >= 6    THEN 1 ELSE 0 END), 0)     AS known_cnt
             FROM words w
             LEFT JOIN progress p ON w.id = p.word_id AND p.user_id = ?
-            WHERE w.curriculum IN ('classic', 'hsk3')
+            WHERE w.curriculum IN ({cur_ph})
             GROUP BY w.curriculum, w.hsk_level
             ORDER BY w.curriculum DESC, w.hsk_level
-        ''', (uid,)).fetchall()
+        ''', (uid, *curricula)).fetchall()
 
-        level_stats = {'classic': [], 'hsk3': []}
+        level_stats = {cur: [] for cur in curricula}
         for r in level_rows:
             curr = r['curriculum']
             if curr not in level_stats:
@@ -1933,17 +2292,19 @@ def stats():
             })
 
         # ── 4. Due forecast ───────────────────────────────────────────────────
-        due = conn.execute('''
+        due = conn.execute(f'''
             SELECT
-                COALESCE(SUM(CASE WHEN due_at < datetime('now') THEN 1 ELSE 0 END), 0) AS overdue,
-                COALESCE(SUM(CASE WHEN due_at >= datetime('now')
-                                   AND due_at <  datetime('now','+1 day')  THEN 1 ELSE 0 END), 0) AS today,
-                COALESCE(SUM(CASE WHEN due_at >= datetime('now','+1 day')
-                                   AND due_at <  datetime('now','+2 days') THEN 1 ELSE 0 END), 0) AS tomorrow,
-                COALESCE(SUM(CASE WHEN due_at >= datetime('now','+2 days')
-                                   AND due_at <  datetime('now','+7 days') THEN 1 ELSE 0 END), 0) AS rest_week
-            FROM progress WHERE due_at IS NOT NULL AND user_id = ?
-        ''', (uid,)).fetchone()
+                COALESCE(SUM(CASE WHEN p.due_at < datetime('now') THEN 1 ELSE 0 END), 0) AS overdue,
+                COALESCE(SUM(CASE WHEN p.due_at >= datetime('now')
+                                   AND p.due_at <  datetime('now','+1 day')  THEN 1 ELSE 0 END), 0) AS today,
+                COALESCE(SUM(CASE WHEN p.due_at >= datetime('now','+1 day')
+                                   AND p.due_at <  datetime('now','+2 days') THEN 1 ELSE 0 END), 0) AS tomorrow,
+                COALESCE(SUM(CASE WHEN p.due_at >= datetime('now','+2 days')
+                                   AND p.due_at <  datetime('now','+7 days') THEN 1 ELSE 0 END), 0) AS rest_week
+            FROM progress p
+            JOIN words w ON w.id = p.word_id
+            WHERE p.due_at IS NOT NULL AND p.user_id = ? AND w.curriculum IN ({cur_ph})
+        ''', (uid, *curricula)).fetchone()
 
         # ── 5. Activity calendar (last 90 days) ───────────────────────────────
         activity_rows = conn.execute('''
@@ -1957,12 +2318,13 @@ def stats():
         ''', (uid,)).fetchall()
         activity = {r['d']: int(r['reviews']) for r in activity_rows}
 
-        map_activity_rows = conn.execute('''
+        map_activity_rows = conn.execute(f'''
             SELECT DISTINCT DATE(passed_at) AS d
             FROM map_progress
             WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
               AND passed_at >= date('now','-90 days')
-        ''', (uid,)).fetchall()
+              AND curriculum IN ({cur_ph})
+        ''', (uid, *curricula)).fetchall()
         map_activity_dates = {r['d'] for r in map_activity_rows}
 
         # ── 6. Library size ───────────────────────────────────────────────────
@@ -1975,17 +2337,18 @@ def stats():
             min(4, len(earned_keys))
         )
 
-        library = conn.execute('''
+        library = conn.execute(f'''
             SELECT COUNT(DISTINCT w.hanzi) AS total_hanzi,
                    COUNT(we.id)            AS total_examples
             FROM words w
             LEFT JOIN word_examples we ON we.word_id = w.id
-        ''').fetchone()
+            WHERE w.curriculum IN ({cur_ph})
+        ''', (*curricula,)).fetchone()
 
         # ── 7. Map progress ───────────────────────────────────────────────────
         map_progress_rows = conn.execute('SELECT * FROM map_progress WHERE user_id = ?', (uid,)).fetchall()
         map_levels = {}
-        for cur in ['classic', 'hsk3']:
+        for cur in curricula:
             map_levels[cur] = [r[0] for r in conn.execute(
                 'SELECT DISTINCT hsk_level FROM words WHERE curriculum=? AND hsk_level IS NOT NULL ORDER BY hsk_level',
                 (cur,)
@@ -2010,7 +2373,7 @@ def stats():
     map_prog = {(r['curriculum'], r['level'], r['circle_num']): dict(r) for r in map_progress_rows}
     map_stats = {}
     map_total_passed = 0
-    for cur in ['classic', 'hsk3']:
+    for cur in curricula:
         map_stats[cur] = []
         levels = map_levels.get(cur, [])
         for li, level in enumerate(levels):
@@ -2042,6 +2405,8 @@ def stats():
             })
 
     return render_template('stats.html',
+        lang           = lang,
+        curricula_list = list(curricula),
         streak        = streak,
         total_reviews = total_reviews,
         known_total   = known_total,
@@ -2109,6 +2474,33 @@ def awards():
                         streak += 1
                     else:
                         break
+        # Extra progress counters for new award categories
+        total_sessions = conn.execute(
+            'SELECT COUNT(*) FROM session_logs WHERE user_id=?', (uid,)
+        ).fetchone()[0]
+        total_circles = conn.execute(
+            'SELECT COUNT(*) FROM map_progress WHERE user_id=? AND passed=1', (uid,)
+        ).fetchone()[0]
+        total_days = conn.execute(
+            '''SELECT COUNT(DISTINCT DATE(d)) FROM (
+                SELECT started_at AS d FROM session_logs WHERE user_id = ?
+                UNION
+                SELECT passed_at AS d FROM map_progress
+                WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
+            )''', (uid, uid)
+        ).fetchone()[0]
+        game_plays_counts = {
+            r['game_type']: r['plays']
+            for r in conn.execute('SELECT game_type, plays FROM game_plays WHERE user_id=?', (uid,)).fetchall()
+        }
+        grammar_fav_count = 0
+        try:
+            grammar_fav_count = conn.execute(
+                'SELECT COUNT(*) FROM grammar_favorites WHERE user_id=?', (uid,)
+            ).fetchone()[0]
+        except Exception:
+            pass
+
         # Mastery progress: known and total words per curriculum+level
         level_totals = {
             (r['curriculum'], r['hsk_level']): r['cnt']
@@ -2137,28 +2529,56 @@ def awards():
         **{f'known_classic_{l}': ('classic', l) for l in range(1, 7)},
         **{f'known_hsk3_{l}':    ('hsk3',    l) for l in range(1, 8)},
     }
+    # Per-category scalar progress (legacy threshold awards)
     cat_progress = {
         'flashcard': total_reviews,
         'words':     known_total,
         'streak':    streak,
     }
 
+    # Per-award progress overrides (current_value, threshold)
+    award_progress_map = {
+        'session_10':  (total_sessions, 10),
+        'session_50':  (total_sessions, 50),
+        'session_100': (total_sessions, 100),
+        'session_500': (total_sessions, 500),
+        'one_month':   (total_days, 30),
+        'explorer_10':  (total_circles, 10),
+        'explorer_25':  (total_circles, 25),
+        'explorer_50':  (total_circles, 50),
+        'explorer_100': (total_circles, 100),
+        'game_bingo':  (game_plays_counts.get('bingo', 0), 10),
+        'game_tone':   (game_plays_counts.get('tone',  0), 10),
+        'game_match':  (game_plays_counts.get('match', 0), 10),
+        'game_mc':     (game_plays_counts.get('mc',    0), 10),
+        'game_draw':   (game_plays_counts.get('draw',  0), 10),
+        'game_scram':  (game_plays_counts.get('scram', 0), 10),
+        'grammar_fan':    (grammar_fav_count, 5),
+        'grammar_master': (grammar_fav_count, 10),
+    }
+
     cat_labels = {
         'flashcard': 'Flashcard Reviews',
         'words':     'Words Learned',
         'streak':    'Day Streaks',
+        'sessions':  'Sessions & Consistency',
         'map':       'Learning Map',
+        'games':     'Games',
         'misc':      'Miscellaneous',
         'mastery':   'Level Mastery',
     }
     categories = {}
     for a in AWARDS:
         cat = a['cat']
-        categories.setdefault(cat, {'label': cat_labels[cat], 'awards': []})
+        categories.setdefault(cat, {'label': cat_labels.get(cat, cat), 'awards': []})
         aw = {**a, 'earned_at': earned.get(a['key']),
               'progress_pct': 0, 'progress_label': ''}
         if not aw['earned_at']:
-            if cat in cat_progress and 'threshold' in a:
+            if a['key'] in award_progress_map:
+                current, total = award_progress_map[a['key']]
+                aw['progress_pct']   = min(100, int(current / total * 100)) if total else 0
+                aw['progress_label'] = f"{current:,} / {total:,}"
+            elif cat in cat_progress and 'threshold' in a:
                 current = cat_progress[cat]
                 total   = a['threshold']
                 aw['progress_pct']   = min(100, int(current / total * 100)) if total else 0
@@ -2255,16 +2675,19 @@ def api_tts():
     text = request.args.get('text', '').strip()
     if not text:
         return ('', 400)
-    filename   = hashlib.md5(text.encode()).hexdigest() + '.mp3'
+    lang_key   = get_language()
+    filename   = hashlib.md5(f'{lang_key}:{text}'.encode()).hexdigest() + '.mp3'
     cache_file = os.path.join(TTS_CACHE, filename)
     if os.path.exists(cache_file):
         return send_file(cache_file, mimetype='audio/mpeg')
     if not _TTS_AVAILABLE:
         return ('', 503)
     if IS_ANDROID:
-        _gTTS(text=text, lang='zh-CN').save(cache_file)
+        lang_code = 'ja' if get_language() == 'japanese' else 'zh-CN'
+        _gTTS(text=text, lang=lang_code).save(cache_file)
     else:
-        asyncio.run(edge_tts.Communicate(text, voice='zh-CN-XiaoxiaoNeural', rate='-10%').save(cache_file))
+        voice = 'ja-JP-NanamiNeural' if get_language() == 'japanese' else 'zh-CN-XiaoxiaoNeural'
+        asyncio.run(edge_tts.Communicate(text, voice=voice, rate='-10%').save(cache_file))
     return send_file(cache_file, mimetype='audio/mpeg')
 
 
@@ -2308,13 +2731,16 @@ def end_session():
         if uid:
             with get_db() as conn:
                 check_lazy_awards(conn, uid)
+    lang = session.get('language')
     session.clear()
     if uid:
         session['user_id'] = uid   # preserve user across session end
+    if lang:
+        session['language'] = lang  # preserve language across session end
     return redirect(next_url)
 
 
-def _dict_search(q, field='all', limit=80, offset=0):
+def _dict_search(q, field='all', limit=80, offset=0, language='chinese'):
     """Search dictionary by field. Returns (results, has_more).
 
     Ranking uses 3 tiers so exact / prefix matches always surface first:
@@ -2322,83 +2748,132 @@ def _dict_search(q, field='all', limit=80, offset=0):
       1 = prefix / starts-with match
       2 = substring anywhere
     """
-    is_chinese = any('一' <= c <= '鿿' for c in q)
-    fetch      = limit + 1
-    like       = f'%{q}%'
-    ql         = q.lower()
+    fetch = limit + 1
+    like  = f'%{q}%'
+    ql    = q.lower()
 
     with get_db() as conn:
 
-        # ── Hanzi (simplified / all-chinese) ─────────────────────────────────
-        if field == 'simplified' or (field == 'all' and is_chinese):
-            if field == 'all':
-                where  = 'simplified LIKE ? OR traditional LIKE ?'
-                wparams = [like, like]
-            else:
-                where  = 'simplified LIKE ?'
-                wparams = [like]
-            rows = conn.execute(f'''
-                SELECT id, traditional, simplified, pinyin, english
-                FROM dictionary WHERE {where}
-                ORDER BY
-                  CASE
-                    WHEN simplified = ?           THEN 0
-                    WHEN simplified LIKE ?        THEN 1
-                    ELSE                               2
-                  END,
-                  length(simplified)
-                LIMIT ? OFFSET ?
-            ''', wparams + [q, q + '%', fetch, offset]).fetchall()
+        if language == 'japanese':
+            is_jp = any('぀' <= c <= 'ヿ' or '一' <= c <= '鿿' for c in q)
 
-        # ── Traditional ───────────────────────────────────────────────────────
-        elif field == 'traditional':
-            rows = conn.execute('''
-                SELECT id, traditional, simplified, pinyin, english
-                FROM dictionary WHERE traditional LIKE ?
-                ORDER BY
-                  CASE
-                    WHEN traditional = ?    THEN 0
-                    WHEN traditional LIKE ? THEN 1
-                    ELSE                         2
-                  END,
-                  length(simplified)
-                LIMIT ? OFFSET ?
-            ''', [like, q, q + '%', fetch, offset]).fetchall()
+            if field == 'simplified' or (field == 'all' and is_jp):
+                rows = conn.execute('''
+                    SELECT id, simplified, simplified AS traditional, pinyin, english
+                    FROM dictionary WHERE language='japanese' AND simplified LIKE ?
+                    ORDER BY
+                      CASE WHEN simplified=? THEN 0 WHEN simplified LIKE ? THEN 1 ELSE 2 END,
+                      length(simplified)
+                    LIMIT ? OFFSET ?
+                ''', [like, q, q + '%', fetch, offset]).fetchall()
 
-        # ── Pinyin ────────────────────────────────────────────────────────────
-        elif field == 'pinyin':
-            pattern = pinyin_to_like_pattern(q)
-            if not pattern:
-                return [], False
-            # Without surrounding % → exact syllable check (e.g. 'da_' ≠ 'dao3')
-            rows = conn.execute('''
-                SELECT id, traditional, simplified, pinyin, english
-                FROM dictionary WHERE pinyin LIKE ?
-                ORDER BY
-                  CASE
-                    WHEN pinyin LIKE ?        THEN 0
-                    WHEN pinyin LIKE ?        THEN 1
-                    ELSE                           2
-                  END,
-                  length(simplified)
-                LIMIT ? OFFSET ?
-            ''', [f'%{pattern}%', pattern, pattern + ' %', fetch, offset]).fetchall()
+            elif field == 'pinyin':
+                rows = conn.execute('''
+                    SELECT id, simplified, simplified AS traditional, pinyin, english
+                    FROM dictionary WHERE language='japanese' AND lower(pinyin) LIKE ?
+                    ORDER BY
+                      CASE WHEN lower(pinyin)=? THEN 0 WHEN lower(pinyin) LIKE ? THEN 1 ELSE 2 END,
+                      length(simplified)
+                    LIMIT ? OFFSET ?
+                ''', [like, ql, ql + '%', fetch, offset]).fetchall()
 
-        # ── English (also handles 'all' non-Chinese) ──────────────────────────
+            elif field == 'english':
+                rows = conn.execute('''
+                    SELECT id, simplified, simplified AS traditional, pinyin, english
+                    FROM dictionary WHERE language='japanese' AND english LIKE ?
+                    ORDER BY
+                      CASE WHEN lower(english)=? THEN 0 WHEN lower(english) LIKE ? THEN 1 ELSE 2 END,
+                      length(english)
+                    LIMIT ? OFFSET ?
+                ''', [like, ql, ql + '%', fetch, offset]).fetchall()
+
+            else:  # all, non-CJK query: search romaji (pinyin) and english together
+                rows = conn.execute('''
+                    SELECT id, simplified, simplified AS traditional, pinyin, english
+                    FROM dictionary WHERE language='japanese'
+                      AND (lower(pinyin) LIKE ? OR english LIKE ?)
+                    ORDER BY
+                      CASE
+                        WHEN lower(pinyin)=? OR lower(english)=?          THEN 0
+                        WHEN lower(pinyin) LIKE ? OR lower(english) LIKE ? THEN 1
+                        ELSE                                                     2
+                      END,
+                      length(simplified)
+                    LIMIT ? OFFSET ?
+                ''', [like, like, ql, ql, ql + '%', ql + '%', fetch, offset]).fetchall()
+
         else:
-            rows = conn.execute('''
-                SELECT id, traditional, simplified, pinyin, english
-                FROM dictionary WHERE english LIKE ?
-                ORDER BY
-                  CASE
-                    WHEN lower(english) = ?         THEN 0
-                    WHEN lower(english) LIKE ?
-                      OR lower(english) LIKE ?      THEN 1
-                    ELSE                                 2
-                  END,
-                  length(english)
-                LIMIT ? OFFSET ?
-            ''', [like, ql, ql + ' %', ql + ';%', fetch, offset]).fetchall()
+            is_chinese = any('一' <= c <= '鿿' for c in q)
+
+            # ── Hanzi (simplified / all-chinese) ─────────────────────────────
+            if field == 'simplified' or (field == 'all' and is_chinese):
+                if field == 'all':
+                    where   = "language='chinese' AND (simplified LIKE ? OR traditional LIKE ?)"
+                    wparams = [like, like]
+                else:
+                    where   = "language='chinese' AND simplified LIKE ?"
+                    wparams = [like]
+                rows = conn.execute(f'''
+                    SELECT id, traditional, simplified, pinyin, english
+                    FROM dictionary WHERE {where}
+                    ORDER BY
+                      CASE
+                        WHEN simplified = ?    THEN 0
+                        WHEN simplified LIKE ? THEN 1
+                        ELSE                        2
+                      END,
+                      length(simplified)
+                    LIMIT ? OFFSET ?
+                ''', wparams + [q, q + '%', fetch, offset]).fetchall()
+
+            # ── Traditional ───────────────────────────────────────────────────
+            elif field == 'traditional':
+                rows = conn.execute('''
+                    SELECT id, traditional, simplified, pinyin, english
+                    FROM dictionary WHERE language='chinese' AND traditional LIKE ?
+                    ORDER BY
+                      CASE
+                        WHEN traditional = ?    THEN 0
+                        WHEN traditional LIKE ? THEN 1
+                        ELSE                         2
+                      END,
+                      length(simplified)
+                    LIMIT ? OFFSET ?
+                ''', [like, q, q + '%', fetch, offset]).fetchall()
+
+            # ── Pinyin ────────────────────────────────────────────────────────
+            elif field == 'pinyin':
+                pattern = pinyin_to_like_pattern(q)
+                if not pattern:
+                    return [], False
+                rows = conn.execute('''
+                    SELECT id, traditional, simplified, pinyin, english
+                    FROM dictionary WHERE language='chinese' AND pinyin LIKE ?
+                    ORDER BY
+                      CASE
+                        WHEN pinyin LIKE ?    THEN 0
+                        WHEN pinyin LIKE ?    THEN 1
+                        ELSE                       2
+                      END,
+                      length(simplified)
+                    LIMIT ? OFFSET ?
+                ''', [f'%{pattern}%', pattern, pattern + ' %', fetch, offset]).fetchall()
+
+            # ── English (also handles 'all' non-Chinese) ──────────────────────
+            else:
+                rows = conn.execute('''
+                    SELECT id, traditional, simplified, pinyin, english
+                    FROM dictionary WHERE language='chinese' AND english LIKE ?
+                    ORDER BY
+                      CASE
+                        WHEN lower(english) = ?         THEN 0
+                        WHEN lower(english) LIKE ?
+                          OR lower(english) LIKE ?      THEN 1
+                        ELSE                                 2
+                      END,
+                      length(english)
+                    LIMIT ? OFFSET ?
+                ''', [like, ql, ql + ' %', ql + ';%', fetch, offset]).fetchall()
 
     results  = [dict(r) for r in rows]
     has_more = len(results) > limit
@@ -2407,20 +2882,23 @@ def _dict_search(q, field='all', limit=80, offset=0):
 
 @app.route('/dictionary')
 def dictionary():
+    lang   = get_language()
     q      = request.args.get('q', '').strip()
     field  = request.args.get('field', 'all')
     offset = max(0, int(request.args.get('offset', 0) or 0))
     fmt    = request.args.get('format', 'html')
 
     with get_db() as conn:
-        has_data = conn.execute('SELECT COUNT(*) FROM dictionary').fetchone()[0] > 0
+        has_data = conn.execute(
+            "SELECT COUNT(*) FROM dictionary WHERE language=?", (lang,)
+        ).fetchone()[0] > 0
 
     results  = []
     has_more = False
     ready    = False
 
     if q and has_data:
-        results, has_more = _dict_search(q, field, limit=80, offset=offset)
+        results, has_more = _dict_search(q, field, limit=80, offset=offset, language=lang)
         ready = True
 
     if fmt == 'json':
@@ -2428,7 +2906,7 @@ def dictionary():
 
     return render_template('dictionary.html', q=q, field=field, results=results,
                            has_data=has_data, ready=ready, has_more=has_more,
-                           has_user=bool(get_user_id()))
+                           has_user=bool(get_user_id()), lang=lang)
 
 
 @app.route('/custom')
@@ -2436,6 +2914,7 @@ def custom_lists_page():
     uid = get_user_id()
     if not uid:
         return redirect('/users')
+    lang = get_language()
     now = now_str()
     with get_db() as conn:
         rows = conn.execute('''
@@ -2446,11 +2925,11 @@ def custom_lists_page():
             FROM custom_lists cl
             LEFT JOIN custom_list_words clw ON cl.id = clw.list_id
             LEFT JOIN progress p ON clw.word_id = p.word_id AND p.user_id = ?
-            WHERE cl.user_id = ?
+            WHERE cl.user_id = ? AND cl.language = ?
             GROUP BY cl.id
             ORDER BY cl.name
-        ''', (now, uid, uid)).fetchall()
-    return render_template('custom.html', lists=[dict(r) for r in rows])
+        ''', (now, uid, uid, lang)).fetchall()
+    return render_template('custom.html', lists=[dict(r) for r in rows], lang=lang)
 
 
 @app.route('/api/custom-lists')
@@ -2458,8 +2937,12 @@ def api_custom_lists():
     uid = get_user_id()
     if not uid:
         return jsonify({'lists': []})
+    lang = get_language()
     with get_db() as conn:
-        rows = conn.execute('SELECT id, name FROM custom_lists WHERE user_id = ? ORDER BY name', (uid,)).fetchall()
+        rows = conn.execute(
+            'SELECT id, name FROM custom_lists WHERE user_id=? AND language=? ORDER BY name',
+            (uid, lang)
+        ).fetchall()
     return jsonify({'lists': [dict(r) for r in rows]})
 
 
@@ -2486,23 +2969,32 @@ def api_custom_list_add():
             if conn.execute('SELECT id FROM custom_lists WHERE name = ? AND user_id = ?', (list_name, uid)).fetchone():
                 return jsonify({'ok': False, 'error': f'A list named "{list_name}" already exists.'})
             cur = conn.execute(
-                'INSERT INTO custom_lists (name, created_at, user_id) VALUES (?, ?, ?)',
-                (list_name, now_str(), uid)
+                'INSERT INTO custom_lists (name, created_at, user_id, language) VALUES (?, ?, ?, ?)',
+                (list_name, now_str(), uid, get_language())
             )
             list_id = cur.lastrowid
 
         added = 0
+        cur_lang = get_language()
         for dict_id in dict_ids:
             d = conn.execute(
-                'SELECT simplified, pinyin, english FROM dictionary WHERE id = ?', (dict_id,)
+                'SELECT simplified, pinyin, english, language FROM dictionary WHERE id = ?', (dict_id,)
             ).fetchone()
             if not d:
                 continue
 
-            # Reuse existing word row (any curriculum) matched by hanzi
-            existing = conn.execute(
-                'SELECT id FROM words WHERE hanzi = ? LIMIT 1', (d['simplified'],)
-            ).fetchone()
+            if d['language'] == 'japanese':
+                # For Japanese words: prefer jlpt curriculum match, then custom-japanese
+                existing = conn.execute(
+                    "SELECT id FROM words WHERE hanzi=? AND curriculum IN ('jlpt','custom') LIMIT 1",
+                    (d['simplified'],)
+                ).fetchone()
+            else:
+                # For Chinese words: reuse any existing word row matched by hanzi
+                existing = conn.execute(
+                    'SELECT id FROM words WHERE hanzi=? LIMIT 1', (d['simplified'],)
+                ).fetchone()
+
             if existing:
                 word_id = existing['id']
             else:
@@ -2678,10 +3170,14 @@ def map_page():
     uid = get_user_id()
     if not uid:
         return redirect('/users')
+    valid_curricula = get_curricula()
+    curriculum_labels = {
+        'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'jlpt': 'JLPT'
+    }
     with get_db() as conn:
-        curricula = [r[0] for r in conn.execute(
-            "SELECT DISTINCT curriculum FROM words WHERE curriculum NOT IN ('custom','anki') ORDER BY curriculum"
-        ).fetchall()]
+        curricula = [c for c in valid_curricula if conn.execute(
+            'SELECT 1 FROM words WHERE curriculum=? LIMIT 1', (c,)
+        ).fetchone()]
         level_counts = {}
         for cur in curricula:
             lvls = [r[0] for r in conn.execute(
@@ -2727,7 +3223,7 @@ def map_page():
             map_data[cur].append({'level': level, 'circles': circles})
 
     return render_template('map.html', curricula=curricula, map_data=map_data,
-                           curriculum_labels={'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'})
+                           curriculum_labels=curriculum_labels, lang=get_language())
 
 
 _MAP_THRESHOLDS = {
@@ -2803,7 +3299,14 @@ def api_map_reset():
 
 @app.route('/family')
 def family():
-    return render_template('family.html')
+    return render_template('family.html', lang=get_language())
+
+
+@app.route('/kana')
+def kana():
+    if get_language() != 'japanese':
+        return redirect('/')
+    return render_template('kana.html')
 
 
 # ── User management ───────────────────────────────────────────────────────────
@@ -2904,13 +3407,13 @@ def _collect_sync_payload(uid, conn):
     ''', (uid,)).fetchall()]
 
     progress = [dict(r) for r in conn.execute('''
-        SELECT w.hanzi, p.interval_step, p.last_grade, p.last_seen, p.due_at
+        SELECT w.hanzi, w.curriculum, p.interval_step, p.last_grade, p.last_seen, p.due_at
         FROM progress p JOIN words w ON w.id = p.word_id
         WHERE p.user_id = ?
     ''', (uid,)).fetchall()]
 
     lists_raw = conn.execute(
-        'SELECT id, name, created_at FROM custom_lists WHERE user_id=?', (uid,)
+        'SELECT id, name, created_at, language FROM custom_lists WHERE user_id=?', (uid,)
     ).fetchall()
     custom_lists = []
     for lst in lists_raw:
@@ -2921,6 +3424,7 @@ def _collect_sync_payload(uid, conn):
         custom_lists.append({
             'name': lst['name'],
             'created_at': lst['created_at'],
+            'language': lst['language'] or 'chinese',
             'words': [r['hanzi'] for r in members],
         })
 
@@ -2955,9 +3459,10 @@ def _collect_sync_payload(uid, conn):
         'SELECT award_key, awarded_at FROM user_awards WHERE user_id=? ORDER BY awarded_at', (uid,)
     ).fetchall()]
 
-    game_plays = [r[0] for r in conn.execute(
-        'SELECT game_type FROM game_plays WHERE user_id=?', (uid,)
-    ).fetchall()]
+    game_plays = [{'game_type': r['game_type'], 'plays': r['plays']}
+                  for r in conn.execute(
+                      'SELECT game_type, plays FROM game_plays WHERE user_id=?', (uid,)
+                  ).fetchall()]
 
     payload = {
         'version': 1,
@@ -3040,60 +3545,81 @@ def sync_import():
     session['user_id'] = uid
 
     with get_db() as conn:
-        # Build hanzi → local word_id map, creating missing words
-        hanzi_to_id = {}
+        # Build word lookup maps, creating missing words
+        hanzi_to_id = {}        # hanzi → word_id (curriculum-agnostic; last-seen wins)
+        hanzi_cur_to_id = {}    # (hanzi, curriculum) → word_id (precise lookup)
         for w in data.get('words', []):
             hanzi = w['hanzi']
-            row = conn.execute('SELECT id FROM words WHERE hanzi=?', (hanzi,)).fetchone()
+            curr  = w.get('curriculum', 'classic')
+            row = conn.execute(
+                'SELECT id FROM words WHERE hanzi=? AND curriculum=?', (hanzi, curr)
+            ).fetchone()
             if row:
-                hanzi_to_id[hanzi] = row['id']
+                wid = row['id']
             else:
-                cur = conn.execute('''
+                wid = conn.execute('''
                     INSERT INTO words
                         (hanzi, pinyin, english, hsk_level, curriculum,
                          example_hanzi, example_pinyin, example_english, audio_file)
                     VALUES (?,?,?,?,?,?,?,?,?)
                 ''', (hanzi, w.get('pinyin'), w.get('english'), w.get('hsk_level', 0),
-                      w.get('curriculum', 'classic'), w.get('example_hanzi'),
-                      w.get('example_pinyin'), w.get('example_english'), w.get('audio_file')))
-                hanzi_to_id[hanzi] = cur.lastrowid
+                      curr, w.get('example_hanzi'),
+                      w.get('example_pinyin'), w.get('example_english'), w.get('audio_file'))
+                ).lastrowid
+            hanzi_cur_to_id[(hanzi, curr)] = wid
+            hanzi_to_id[hanzi] = wid  # last-seen wins; fine for unique hanzi
 
         # Ensure any progress entry's hanzi is resolved even if not in words list
         for p in data.get('progress', []):
             hanzi = p['hanzi']
-            if hanzi not in hanzi_to_id:
-                row = conn.execute('SELECT id FROM words WHERE hanzi=?', (hanzi,)).fetchone()
+            curr  = p.get('curriculum', 'classic')
+            key   = (hanzi, curr)
+            if key not in hanzi_cur_to_id:
+                row = conn.execute(
+                    'SELECT id FROM words WHERE hanzi=? AND curriculum=?', (hanzi, curr)
+                ).fetchone()
+                if not row:
+                    row = conn.execute('SELECT id FROM words WHERE hanzi=?', (hanzi,)).fetchone()
                 if row:
+                    hanzi_cur_to_id[key] = row['id']
                     hanzi_to_id[hanzi] = row['id']
 
         # Replace progress
-        # Deduplicate by hanzi first — the same hanzi can appear multiple times in the
-        # export (once per curriculum it belongs to) but the values are always identical
-        # because grading keeps all curricula in sync.  Mirror only within classic/hsk3
-        # (the two SRS-synced curricula); anki/custom words are matched by their
-        # specific curriculum via hanzi_to_id so they don't get spurious extra entries.
+        # Deduplicate by (hanzi, curriculum-group).  Chinese curricula (classic/hsk3)
+        # always have identical progress values and share the same group so they get
+        # mirrored together.  JLPT (and other curricula) form their own groups, ensuring
+        # a kanji that appears in both Chinese and Japanese gets separate progress entries.
+        # Old export files have no curriculum field; treat them as Chinese (group='').
         conn.execute('DELETE FROM progress WHERE user_id=?', (uid,))
-        seen_hanzi: dict = {}
+        seen_hc: dict = {}
         for p in data.get('progress', []):
-            if p['hanzi'] not in seen_hanzi:
-                seen_hanzi[p['hanzi']] = p
-        for hanzi, p in seen_hanzi.items():
-            srs_wids = conn.execute(
-                "SELECT id FROM words WHERE hanzi=? AND curriculum IN ('classic','hsk3')",
-                (hanzi,)
-            ).fetchall()
-            wids = {r['id'] for r in srs_wids}
-            # Also include the curriculum-specific word from hanzi_to_id (covers anki/custom)
-            if hanzi in hanzi_to_id:
-                wids.add(hanzi_to_id[hanzi])
+            curr = p.get('curriculum', '')
+            grp  = '' if not curr or curr in ('classic', 'hsk3') else curr
+            key  = (p['hanzi'], grp)
+            if key not in seen_hc:
+                seen_hc[key] = p
+        for (hanzi, grp), p in seen_hc.items():
+            if not grp:
+                # Old export or Chinese: mirror progress to all classic/hsk3 word IDs
+                srs_wids = conn.execute(
+                    "SELECT id FROM words WHERE hanzi=? AND curriculum IN ('classic','hsk3')",
+                    (hanzi,)
+                ).fetchall()
+                wids = {r['id'] for r in srs_wids}
+                if hanzi in hanzi_to_id:
+                    wids.add(hanzi_to_id[hanzi])
+            else:
+                # Curriculum-specific (jlpt, anki, custom): write to exactly that word
+                specific = hanzi_cur_to_id.get((hanzi, grp))
+                wids = {specific} if specific else set()
             for wid in wids:
                 conn.execute('''
                     INSERT OR REPLACE INTO progress (user_id, word_id, interval_step, last_grade, last_seen, due_at)
                     VALUES (?,?,?,?,?,?)
                 ''', (uid, wid, p.get('interval_step', 0), p.get('last_grade'),
                       p.get('last_seen'), p.get('due_at')))
-            if hanzi not in hanzi_to_id and srs_wids:
-                hanzi_to_id[hanzi] = srs_wids[0]['id']
+            if hanzi not in hanzi_to_id and wids:
+                hanzi_to_id[hanzi] = next(iter(wids))
 
         # Replace custom lists
         old_list_ids = [r[0] for r in conn.execute(
@@ -3105,8 +3631,8 @@ def sync_import():
         conn.execute('DELETE FROM custom_lists WHERE user_id=?', (uid,))
         for lst in data.get('custom_lists', []):
             cur = conn.execute(
-                'INSERT INTO custom_lists (name, created_at, user_id) VALUES (?,?,?)',
-                (lst['name'], lst.get('created_at'), uid)
+                'INSERT INTO custom_lists (name, created_at, user_id, language) VALUES (?,?,?,?)',
+                (lst['name'], lst.get('created_at'), uid, lst.get('language', 'chinese'))
             )
             lid = cur.lastrowid
             for hanzi in lst.get('words', []):
@@ -3170,13 +3696,15 @@ def sync_import():
                 (uid, aw['award_key'], aw.get('awarded_at'))
             )
 
-        # Replace game plays
+        # Replace game plays (supports old list-of-strings and new list-of-dicts format)
         conn.execute('DELETE FROM game_plays WHERE user_id=?', (uid,))
-        for game_type in data.get('game_plays', []):
-            if game_type in ALL_GAME_TYPES:
+        for item in data.get('game_plays', []):
+            gt = item if isinstance(item, str) else item.get('game_type', '')
+            plays = 1 if isinstance(item, str) else item.get('plays', 1)
+            if gt in ALL_GAME_TYPES:
                 conn.execute(
-                    'INSERT OR IGNORE INTO game_plays (user_id, game_type) VALUES (?,?)',
-                    (uid, game_type)
+                    'INSERT OR IGNORE INTO game_plays (user_id, game_type, plays) VALUES (?,?,?)',
+                    (uid, gt, plays)
                 )
 
         # Grant after awards restore so the DELETE wipe can't remove it
@@ -3311,8 +3839,8 @@ def android_import_execute():
         conn.execute('DELETE FROM custom_lists WHERE user_id=?', (uid,))
         for lst in payload.get('custom_lists', []):
             cur = conn.execute(
-                'INSERT INTO custom_lists (name, created_at, user_id) VALUES (?,?,?)',
-                (lst['name'], lst.get('created_at'), uid)
+                'INSERT INTO custom_lists (name, created_at, user_id, language) VALUES (?,?,?,?)',
+                (lst['name'], lst.get('created_at'), uid, lst.get('language', 'chinese'))
             )
             lid = cur.lastrowid
             for hanzi in lst.get('words', []):
@@ -3598,8 +4126,8 @@ def anki_import():
     with get_db() as conn:
         # Create the custom list
         cur = conn.execute(
-            'INSERT INTO custom_lists (name, created_at, user_id) VALUES (?, ?, ?)',
-            (list_name, now, uid)
+            'INSERT INTO custom_lists (name, created_at, user_id, language) VALUES (?, ?, ?, ?)',
+            (list_name, now, uid, get_language())
         )
         list_id = cur.lastrowid
 

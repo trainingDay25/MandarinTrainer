@@ -60,6 +60,11 @@ body {
 .subnav-link:hover  { color: #fff; background: rgba(255,255,255,0.07); }
 .subnav-link.active { color: #fff; background: rgba(90,103,216,0.25); border-bottom-color: #5a67d8; }
 
+.lang-flag { display:inline-flex; align-items:center; padding: 2px 4px; border-radius: 4px; text-decoration: none; opacity: 0.45; transition: opacity 0.15s; }
+.lang-flag:hover { opacity: 0.8; }
+.lang-flag.lang-flag-active { opacity: 1; box-shadow: 0 0 0 2px #5a67d8; }
+.lang-flag img { display:block; width:24px; height:auto; border-radius:2px; }
+
 /* Dropdown toggle resets */
 .subnav-drop {
   background: none;

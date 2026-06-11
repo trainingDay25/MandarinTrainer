@@ -129,9 +129,9 @@
             {{ lantern() }}
             <div class="mchip-seal">
               <span class="mchip-num">
-                {%- if cur == 'hsk3' and lvl == 7 -%}7–9{%- else -%}{{ lvl }}{%- endif -%}
+                {%- if lang == 'japanese' -%}{{ level_label(lvl) }}{%- elif cur == 'hsk3' and lvl == 7 -%}7–9{%- else -%}{{ lvl }}{%- endif -%}
               </span>
-              <span class="mchip-hsk">HSK</span>
+              <span class="mchip-hsk">{% if lang == 'japanese' %}JLPT{% else %}HSK{% endif %}</span>
             </div>
             {{ lantern() }}
           </div>

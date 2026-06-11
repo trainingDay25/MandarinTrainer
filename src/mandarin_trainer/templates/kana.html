@@ -1,0 +1,394 @@
+{% extends 'base.html' %}
+{% block title %}Hiragana &amp; Katakana – Mandarin Trainer{% endblock %}
+
+{% block content %}
+<h4 class="mb-1">Hiragana &amp; Katakana <span class="text-muted fw-normal fs-6">ひらがな・カタカナ</span></h4>
+<p class="text-muted small mb-4">Click any character to hear it pronounced.</p>
+
+{# ── Macro: one kana cell ── #}
+{% macro kc(kana, rom) %}
+  {% if kana %}
+  <td class="kana-cell" onclick="playTTS('{{ kana }}')">
+    <span class="kana-char">{{ kana }}</span>
+    <span class="kana-rom">{{ rom }}</span>
+  </td>
+  {% else %}
+  <td class="kana-cell kana-empty"></td>
+  {% endif %}
+{% endmacro %}
+
+{# ── Helper: section heading ── #}
+{% macro sh(title, sub='') %}
+<h5 class="kana-section-title">{{ title }}{% if sub %} <small class="text-muted fw-normal fs-6">{{ sub }}</small>{% endif %}</h5>
+{% endmacro %}
+
+{# ══════════════════════════════════════════════════════════════════
+   HIRAGANA
+══════════════════════════════════════════════════════════════════ #}
+{{ sh('Hiragana', 'ひらがな') }}
+<div class="table-responsive mb-4">
+<table class="kana-table">
+  <thead>
+    <tr>
+      <th class="kana-rowhead"></th>
+      <th>a</th><th>i</th><th>u</th><th>e</th><th>o</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><th class="kana-rowhead">—</th>
+      {{ kc('あ','a') }}{{ kc('い','i') }}{{ kc('う','u') }}{{ kc('え','e') }}{{ kc('お','o') }}
+    </tr>
+    <tr><th class="kana-rowhead">k</th>
+      {{ kc('か','ka') }}{{ kc('き','ki') }}{{ kc('く','ku') }}{{ kc('け','ke') }}{{ kc('こ','ko') }}
+    </tr>
+    <tr><th class="kana-rowhead">s</th>
+      {{ kc('さ','sa') }}{{ kc('し','shi') }}{{ kc('す','su') }}{{ kc('せ','se') }}{{ kc('そ','so') }}
+    </tr>
+    <tr><th class="kana-rowhead">t</th>
+      {{ kc('た','ta') }}{{ kc('ち','chi') }}{{ kc('つ','tsu') }}{{ kc('て','te') }}{{ kc('と','to') }}
+    </tr>
+    <tr><th class="kana-rowhead">n</th>
+      {{ kc('な','na') }}{{ kc('に','ni') }}{{ kc('ぬ','nu') }}{{ kc('ね','ne') }}{{ kc('の','no') }}
+    </tr>
+    <tr><th class="kana-rowhead">h</th>
+      {{ kc('は','ha') }}{{ kc('ひ','hi') }}{{ kc('ふ','fu') }}{{ kc('へ','he') }}{{ kc('ほ','ho') }}
+    </tr>
+    <tr><th class="kana-rowhead">m</th>
+      {{ kc('ま','ma') }}{{ kc('み','mi') }}{{ kc('む','mu') }}{{ kc('め','me') }}{{ kc('も','mo') }}
+    </tr>
+    <tr><th class="kana-rowhead">y</th>
+      {{ kc('や','ya') }}{{ kc('','') }}{{ kc('ゆ','yu') }}{{ kc('','') }}{{ kc('よ','yo') }}
+    </tr>
+    <tr><th class="kana-rowhead">r</th>
+      {{ kc('ら','ra') }}{{ kc('り','ri') }}{{ kc('る','ru') }}{{ kc('れ','re') }}{{ kc('ろ','ro') }}
+    </tr>
+    <tr><th class="kana-rowhead">w</th>
+      {{ kc('わ','wa') }}{{ kc('','') }}{{ kc('','') }}{{ kc('','') }}{{ kc('を','wo') }}
+    </tr>
+    <tr><th class="kana-rowhead">n</th>
+      <td class="kana-cell" colspan="5" onclick="playTTS('ん')">
+        <span class="kana-char">ん</span><span class="kana-rom">n</span>
+      </td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════
+   KATAKANA
+══════════════════════════════════════════════════════════════════ #}
+{{ sh('Katakana', 'カタカナ') }}
+<div class="table-responsive mb-4">
+<table class="kana-table">
+  <thead>
+    <tr>
+      <th class="kana-rowhead"></th>
+      <th>a</th><th>i</th><th>u</th><th>e</th><th>o</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><th class="kana-rowhead">—</th>
+      {{ kc('ア','a') }}{{ kc('イ','i') }}{{ kc('ウ','u') }}{{ kc('エ','e') }}{{ kc('オ','o') }}
+    </tr>
+    <tr><th class="kana-rowhead">k</th>
+      {{ kc('カ','ka') }}{{ kc('キ','ki') }}{{ kc('ク','ku') }}{{ kc('ケ','ke') }}{{ kc('コ','ko') }}
+    </tr>
+    <tr><th class="kana-rowhead">s</th>
+      {{ kc('サ','sa') }}{{ kc('シ','shi') }}{{ kc('ス','su') }}{{ kc('セ','se') }}{{ kc('ソ','so') }}
+    </tr>
+    <tr><th class="kana-rowhead">t</th>
+      {{ kc('タ','ta') }}{{ kc('チ','chi') }}{{ kc('ツ','tsu') }}{{ kc('テ','te') }}{{ kc('ト','to') }}
+    </tr>
+    <tr><th class="kana-rowhead">n</th>
+      {{ kc('ナ','na') }}{{ kc('ニ','ni') }}{{ kc('ヌ','nu') }}{{ kc('ネ','ne') }}{{ kc('ノ','no') }}
+    </tr>
+    <tr><th class="kana-rowhead">h</th>
+      {{ kc('ハ','ha') }}{{ kc('ヒ','hi') }}{{ kc('フ','fu') }}{{ kc('ヘ','he') }}{{ kc('ホ','ho') }}
+    </tr>
+    <tr><th class="kana-rowhead">m</th>
+      {{ kc('マ','ma') }}{{ kc('ミ','mi') }}{{ kc('ム','mu') }}{{ kc('メ','me') }}{{ kc('モ','mo') }}
+    </tr>
+    <tr><th class="kana-rowhead">y</th>
+      {{ kc('ヤ','ya') }}{{ kc('','') }}{{ kc('ユ','yu') }}{{ kc('','') }}{{ kc('ヨ','yo') }}
+    </tr>
+    <tr><th class="kana-rowhead">r</th>
+      {{ kc('ラ','ra') }}{{ kc('リ','ri') }}{{ kc('ル','ru') }}{{ kc('レ','re') }}{{ kc('ロ','ro') }}
+    </tr>
+    <tr><th class="kana-rowhead">w</th>
+      {{ kc('ワ','wa') }}{{ kc('','') }}{{ kc('','') }}{{ kc('','') }}{{ kc('ヲ','wo') }}
+    </tr>
+    <tr><th class="kana-rowhead">n</th>
+      <td class="kana-cell" colspan="5" onclick="playTTS('ン')">
+        <span class="kana-char">ン</span><span class="kana-rom">n</span>
+      </td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════
+   NOTES
+══════════════════════════════════════════════════════════════════ #}
+{{ sh('Notes', 'ノート') }}
+
+<div class="row g-4 mb-2">
+
+  {# ── Dakuten ── #}
+  <div class="col-12 col-md-6">
+    <div class="kana-note-card">
+      <div class="kana-note-head">Dakuten ゛— Voiced consonants</div>
+      <p class="kana-note-body">Adding ゛(two small strokes) voices the consonant:</p>
+      <div class="table-responsive">
+      <table class="kana-table kana-table-sm">
+        <thead><tr><th></th><th>a</th><th>i</th><th>u</th><th>e</th><th>o</th></tr></thead>
+        <tbody>
+          <tr><th>g</th>
+            {{ kc('が','ga') }}{{ kc('ぎ','gi') }}{{ kc('ぐ','gu') }}{{ kc('げ','ge') }}{{ kc('ご','go') }}
+          </tr>
+          <tr><th>z</th>
+            {{ kc('ざ','za') }}{{ kc('じ','ji') }}{{ kc('ず','zu') }}{{ kc('ぜ','ze') }}{{ kc('ぞ','zo') }}
+          </tr>
+          <tr><th>d</th>
+            {{ kc('だ','da') }}{{ kc('ぢ','ji') }}{{ kc('づ','zu') }}{{ kc('で','de') }}{{ kc('ど','do') }}
+          </tr>
+          <tr><th>b</th>
+            {{ kc('ば','ba') }}{{ kc('び','bi') }}{{ kc('ぶ','bu') }}{{ kc('べ','be') }}{{ kc('ぼ','bo') }}
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="kana-note-body mt-2 text-muted" style="font-size:.78rem">
+        Note: ぢ and づ are pronounced the same as じ (ji) and ず (zu) in modern Japanese.
+      </p>
+    </div>
+  </div>
+
+  {# ── Handakuten ── #}
+  <div class="col-12 col-md-6">
+    <div class="kana-note-card">
+      <div class="kana-note-head">Handakuten ゜— Semi-voiced (p-sounds)</div>
+      <p class="kana-note-body">Adding ゜(small circle) to h-row creates p-sounds:</p>
+      <div class="table-responsive">
+      <table class="kana-table kana-table-sm">
+        <thead><tr><th></th><th>a</th><th>i</th><th>u</th><th>e</th><th>o</th></tr></thead>
+        <tbody>
+          <tr><th>p</th>
+            {{ kc('ぱ','pa') }}{{ kc('ぴ','pi') }}{{ kc('ぷ','pu') }}{{ kc('ぺ','pe') }}{{ kc('ぽ','po') }}
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="kana-note-body mt-3 text-muted" style="font-size:.78rem">
+        Same marks apply to katakana: パ ピ プ ペ ポ
+      </p>
+    </div>
+  </div>
+
+  {# ── Compound kana ── #}
+  <div class="col-12">
+    <div class="kana-note-card">
+      <div class="kana-note-head">Compound Kana (Yōon 拗音) — Small や ゆ よ</div>
+      <p class="kana-note-body">
+        A small や、ゆ、よ written after an i-column character combines into one syllable.
+        For example き + small ゃ = <span class="kana-inline" onclick="playTTS('きゃ')">きゃ</span> (kya).
+      </p>
+      <div class="table-responsive">
+      <table class="kana-table kana-table-sm">
+        <thead><tr><th></th><th>ya</th><th>yu</th><th>yo</th></tr></thead>
+        <tbody>
+          <tr><th>ki き</th>{{ kc('きゃ','kya') }}{{ kc('きゅ','kyu') }}{{ kc('きょ','kyo') }}</tr>
+          <tr><th>shi し</th>{{ kc('しゃ','sha') }}{{ kc('しゅ','shu') }}{{ kc('しょ','sho') }}</tr>
+          <tr><th>chi ち</th>{{ kc('ちゃ','cha') }}{{ kc('ちゅ','chu') }}{{ kc('ちょ','cho') }}</tr>
+          <tr><th>ni に</th>{{ kc('にゃ','nya') }}{{ kc('にゅ','nyu') }}{{ kc('にょ','nyo') }}</tr>
+          <tr><th>hi ひ</th>{{ kc('ひゃ','hya') }}{{ kc('ひゅ','hyu') }}{{ kc('ひょ','hyo') }}</tr>
+          <tr><th>mi み</th>{{ kc('みゃ','mya') }}{{ kc('みゅ','myu') }}{{ kc('みょ','myo') }}</tr>
+          <tr><th>ri り</th>{{ kc('りゃ','rya') }}{{ kc('りゅ','ryu') }}{{ kc('りょ','ryo') }}</tr>
+          <tr><th>gi ぎ</th>{{ kc('ぎゃ','gya') }}{{ kc('ぎゅ','gyu') }}{{ kc('ぎょ','gyo') }}</tr>
+          <tr><th>ji じ</th>{{ kc('じゃ','ja') }}{{ kc('じゅ','ju') }}{{ kc('じょ','jo') }}</tr>
+          <tr><th>bi び</th>{{ kc('びゃ','bya') }}{{ kc('びゅ','byu') }}{{ kc('びょ','byo') }}</tr>
+          <tr><th>pi ぴ</th>{{ kc('ぴゃ','pya') }}{{ kc('ぴゅ','pyu') }}{{ kc('ぴょ','pyo') }}</tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Special characters ── #}
+  <div class="col-12 col-md-6">
+    <div class="kana-note-card">
+      <div class="kana-note-head">Special Characters</div>
+      <ul class="kana-note-list">
+        <li>
+          <span class="kana-inline" onclick="playTTS('ほっかいどう')">っ / ッ</span>
+          <strong>Small tsu</strong> — doubles the following consonant (geminate).
+          <br><span class="text-muted" style="font-size:.8rem">
+            e.g. きって (kitte = stamp), ざっし (zasshi = magazine)
+          </span>
+        </li>
+        <li>
+          <span class="kana-inline">ー</span>
+          <strong>Long vowel mark</strong> (katakana only) — extends the vowel.
+          <br><span class="text-muted" style="font-size:.8rem">
+            e.g. コーヒー (kōhī = coffee), ケーキ (kēki = cake)
+          </span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  {# ── Particle pronunciation ── #}
+  <div class="col-12 col-md-6">
+    <div class="kana-note-card">
+      <div class="kana-note-head">Particle Pronunciation Exceptions</div>
+      <p class="kana-note-body">Three hiragana are pronounced differently when used as particles:</p>
+      <ul class="kana-note-list">
+        <li>
+          <span class="kana-inline" onclick="playTTS('わたしはがくせいです')">は</span>
+          written <em>ha</em>, read <strong>wa</strong> as the topic marker particle
+        </li>
+        <li>
+          <span class="kana-inline" onclick="playTTS('えきへいく')">へ</span>
+          written <em>he</em>, read <strong>e</strong> as the direction particle
+        </li>
+        <li>
+          <span class="kana-inline" onclick="playTTS('ほんをよむ')">を</span>
+          written <em>wo</em>, read <strong>o</strong> as the object marker particle
+        </li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.kana-section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: .6rem;
+  padding-bottom: .25rem;
+  border-bottom: 1px solid #e2e8f0;
+  color: #2d3748;
+}
+
+.kana-table {
+  border-collapse: separate;
+  border-spacing: 4px;
+  font-family: 'Noto Sans SC', sans-serif;
+  margin-bottom: 0;
+}
+
+.kana-table th {
+  font-size: .7rem;
+  color: #718096;
+  font-weight: 600;
+  text-align: center;
+  padding: 2px 6px;
+}
+
+.kana-table .kana-rowhead {
+  font-size: .68rem;
+  color: #a0aec0;
+  text-align: right;
+  padding-right: 6px;
+  white-space: nowrap;
+}
+
+.kana-cell {
+  background: #f7fafc;
+  border-radius: 6px;
+  text-align: center;
+  padding: 6px 4px 4px;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.1s;
+  min-width: 52px;
+  border: 1px solid #e2e8f0;
+  vertical-align: middle;
+}
+
+.kana-cell:hover {
+  background: #ebf4ff;
+  border-color: #90cdf4;
+  transform: scale(1.08);
+}
+
+.kana-cell:active { transform: scale(0.97); }
+
+.kana-cell.kana-empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+.kana-cell.kana-empty:hover { transform: none; }
+
+.kana-char {
+  display: block;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  color: #2d3748;
+}
+
+.kana-rom {
+  display: block;
+  font-size: .62rem;
+  color: #718096;
+  margin-top: 1px;
+}
+
+.kana-table-sm .kana-cell { min-width: 44px; }
+.kana-table-sm .kana-char { font-size: 1.25rem; }
+
+.kana-note-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  height: 100%;
+}
+
+.kana-note-head {
+  font-size: .88rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin-bottom: .4rem;
+}
+
+.kana-note-body {
+  font-size: .83rem;
+  color: #4a5568;
+  margin-bottom: .4rem;
+}
+
+.kana-note-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: .83rem;
+  color: #4a5568;
+}
+
+.kana-note-list li {
+  padding: .4rem 0;
+  border-bottom: 1px solid #f0f4f8;
+}
+
+.kana-note-list li:last-child { border-bottom: none; }
+
+.kana-inline {
+  display: inline-block;
+  font-size: 1.15rem;
+  font-family: 'Noto Sans SC', sans-serif;
+  background: #ebf8ff;
+  border: 1px solid #bee3f8;
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-right: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+  vertical-align: middle;
+}
+
+.kana-inline:hover { background: #bee3f8; }
+</style>
+{% endblock %}

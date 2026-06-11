@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}Stats – Mandarin Trainer{% endblock %}
+{% block title %}Stats – {% if lang == 'japanese' %}Japanese{% else %}Chinese{% endif %} – Mandarin Trainer{% endblock %}
 
 {% block content %}
-<h4 class="mb-4">Stats &amp; Progress</h4>
+<h4 class="mb-4">Stats &amp; Progress <span class="text-muted fw-normal fs-6">{% if lang == 'japanese' %}Japanese 日本語{% else %}Chinese 中文{% endif %}</span></h4>
 
 {# ── 1. Top line numbers ─────────────────────────────────────────────────── #}
 {% set tile_col = 'col-4' if is_android else 'col-sm-4' %}
@@ -60,7 +60,7 @@
     <span style="font-size:1.3rem">📚</span>
     <span class="text-muted small">Library</span>
     <span class="ms-auto d-flex gap-4 small">
-      <span><strong class="me-1">{{ "{:,}".format(total_hanzi) }}</strong><span class="text-muted">unique hanzi</span></span>
+      <span><strong class="me-1">{{ "{:,}".format(total_hanzi) }}</strong><span class="text-muted">{% if lang == 'japanese' %}unique words{% else %}unique hanzi{% endif %}</span></span>
       <span><strong class="me-1">{{ "{:,}".format(total_examples) }}</strong><span class="text-muted">example sentences</span></span>
     </span>
   </div>
@@ -124,13 +124,21 @@
     </div>
   </div>
 
-  {% set curr_labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'} %}
-  {% for curr in ['classic', 'hsk3'] %}
+  {% set curr_labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'jlpt': 'JLPT'} %}
+  {% for curr in curricula_list %}
   {% if level_stats[curr] %}
   <div class="mb-3">
+    {% if curricula_list|length > 1 %}
     <div class="fw-semibold small text-muted mb-2">{{ curr_labels[curr] }}</div>
+    {% endif %}
     {% for lv in level_stats[curr] %}
-    {% set lv_label = 'HSK ' + ('7-9' if (curr == 'hsk3' and lv.level == 7) else lv.level|string) %}
+    {% if lang == 'japanese' %}
+      {% set lv_label = level_label(lv.level) %}
+    {% elif curr == 'hsk3' and lv.level == 7 %}
+      {% set lv_label = 'HSK 7-9' %}
+    {% else %}
+      {% set lv_label = 'HSK ' + lv.level|string %}
+    {% endif %}
     <div class="d-flex align-items-center gap-2 mb-1">
       <div class="text-muted small" style="width:42px;flex-shrink:0">{{ lv_label }}</div>
       <div class="progress flex-grow-1 stat-bar" style="height:16px;cursor:default"
@@ -169,21 +177,30 @@
     <span class="ms-auto">{{ map_total_passed }} circles passed total</span>
   </div>
 
-  {% set curr_labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'} %}
-  {% for cur in ['classic', 'hsk3'] %}
+  {% set curr_labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'jlpt': 'JLPT'} %}
+  {% for cur in curricula_list %}
   {% if map_stats[cur] %}
   {% set cur_passed = map_stats[cur] | sum(attribute='passed') %}
   {% set cur_total  = (map_stats[cur] | length) * 20 %}
   <div class="mb-3">
     <div class="d-flex justify-content-between align-items-center mb-2">
+      {% if curricula_list|length > 1 %}
       <div class="fw-semibold small text-muted">{{ curr_labels[cur] }}</div>
+      {% else %}
+      <div></div>
+      {% endif %}
       <div class="small text-muted">{{ cur_passed }} / {{ cur_total }}</div>
     </div>
     {% for lv in map_stats[cur] %}
+    {% if lang == 'japanese' %}
+      {% set lv_label = level_label(lv.level) %}
+    {% elif cur == 'hsk3' and lv.level == 7 %}
+      {% set lv_label = 'HSK 7–9' %}
+    {% else %}
+      {% set lv_label = 'HSK ' + lv.level|string %}
+    {% endif %}
     <div class="d-flex align-items-center gap-2 mb-1 map-lvl-row" style="flex-wrap:wrap">
-      <div class="text-muted small map-lvl-label" style="flex-shrink:0">
-        HSK {{ '7–9' if (cur == 'hsk3' and lv.level == 7) else lv.level }}
-      </div>
+      <div class="text-muted small map-lvl-label" style="flex-shrink:0">{{ lv_label }}</div>
       <div class="small map-lvl-count ms-auto" style="flex-shrink:0;text-align:right">
         {% if lv.complete %}
         <span class="text-success fw-semibold">✓ done</span>

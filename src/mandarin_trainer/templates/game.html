@@ -41,7 +41,7 @@
   <div class="game-tile" id="tab-match" onclick="switchTab('match')">
     <div class="game-tile-icon">🃏</div>
     <div class="game-tile-name">Match Pairs</div>
-    <div class="game-tile-desc">Link each hanzi to its English meaning</div>
+    <div class="game-tile-desc">Link each {% if lang == 'japanese' %}kanji{% else %}hanzi{% endif %} to its English meaning</div>
   </div>
 
   <div class="game-tile" id="tab-mc" onclick="switchTab('mc')">
@@ -52,8 +52,8 @@
 
   <div class="game-tile" id="tab-draw" onclick="switchTab('draw')">
     <div class="game-tile-icon">✍️</div>
-    <div class="game-tile-name">Draw Hanzi</div>
-    <div class="game-tile-desc">Practise stroke order with guided feedback</div>
+    <div class="game-tile-name">Draw {% if lang == 'japanese' %}Kanji{% else %}Hanzi{% endif %}</div>
+    <div class="game-tile-desc">Practise stroke order with guided feedback{% if lang == 'japanese' %} (kanji only){% endif %}</div>
   </div>
 
   <div class="game-tile" id="tab-scram" onclick="switchTab('scram')">
@@ -74,7 +74,7 @@
 <div id="game-settings-bar" class="d-flex gap-2 align-items-center flex-wrap mb-4">
   <select id="g-curriculum" class="form-select form-select-sm" style="width:auto" onchange="updateHskOptions()">
     {% for c in curricula %}
-    <option value="{{ c }}">{{ {'classic':'Classic HSK','hsk3':'New HSK 3.0'}.get(c,c) }}</option>
+    <option value="{{ c }}">{{ {'classic':'Classic HSK','hsk3':'New HSK 3.0','jlpt':'JLPT'}.get(c,c) }}</option>
     {% endfor %}
   </select>
   <select id="g-hsk" class="form-select form-select-sm" style="width:auto">
@@ -86,8 +86,8 @@
     <option value="quiz">Test (no preview)</option>
   </select>
   <select id="g-mc-dir" class="form-select form-select-sm d-none" style="width:auto">
-    <option value="hanzi">Hanzi → English</option>
-    <option value="english">English → Hanzi</option>
+    <option value="hanzi">{% if lang == 'japanese' %}Kanji{% else %}Hanzi{% endif %} → English</option>
+    <option value="english">English → {% if lang == 'japanese' %}Kanji{% else %}Hanzi{% endif %}</option>
   </select>
   <select id="g-match-pairs" class="form-select form-select-sm d-none" style="width:auto">
     <option value="6">6 pairs</option>
@@ -576,6 +576,7 @@
 <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
 <script>
 const LEVEL_COUNTS = {{ level_counts_json | safe }};
+const LANG = {{ lang | tojson }};
 
 // ── Map mode: circle definitions ─────────────────────────────────────────────
 const CIRCLE_COMPOSITIONS = {
@@ -649,9 +650,15 @@ function updateHskOptions() {
   const sel = document.getElementById('g-hsk');
   sel.innerHTML = '<option value="">All levels</option>';
   (LEVEL_COUNTS[cur] || []).forEach(l => {
-    const opt       = document.createElement('option');
-    opt.value       = l;
-    opt.textContent = (cur === 'hsk3' && l === 7) ? 'HSK 7-9' : `HSK ${l}`;
+    const opt = document.createElement('option');
+    opt.value = l;
+    if (cur === 'jlpt') {
+      opt.textContent = `N${6 - l}`;
+    } else if (cur === 'hsk3' && l === 7) {
+      opt.textContent = 'HSK 7-9';
+    } else {
+      opt.textContent = `HSK ${l}`;
+    }
     sel.appendChild(opt);
   });
 }
@@ -735,9 +742,10 @@ async function initMapMode() {
   document.getElementById('map-header').classList.remove('d-none');
   document.getElementById('map-back-link').href = `/map?curriculum=${encodeURIComponent(mapCurriculum)}`;
 
-  const curLabel = { classic: 'Classic HSK', hsk3: 'New HSK 3.0' }[mapCurriculum] || mapCurriculum;
+  const curLabel = { classic: 'Classic HSK', hsk3: 'New HSK 3.0', jlpt: 'JLPT' }[mapCurriculum] || mapCurriculum;
+  const levelLabel = (mapCurriculum === 'jlpt') ? `N${6 - mapLevel}` : `Level ${mapLevel}`;
   document.getElementById('map-header-label').textContent =
-    `${curLabel} · Level ${mapLevel} · Circle ${mapCircle}`;
+    `${curLabel} · ${levelLabel} · Circle ${mapCircle}`;
 
   const curSel = document.getElementById('g-curriculum');
   curSel.value = mapCurriculum;
@@ -802,7 +810,8 @@ async function showMapFinalResult() {
   ['bingo','tone','match','mc','scram'].forEach(t =>
     document.getElementById(`panel-${t}`).classList.add('d-none')
   );
-  document.getElementById('map-ov-title').textContent  = `Level ${mapLevel} · Circle ${mapCircle}`;
+  const _lvlLabel = (mapCurriculum === 'jlpt') ? `N${6 - mapLevel}` : `Level ${mapLevel}`;
+  document.getElementById('map-ov-title').textContent  = `${_lvlLabel} · Circle ${mapCircle}`;
   document.getElementById('map-ov-sub').textContent    = '';
   document.getElementById('map-ov-score').textContent  =
     `Score: ${pct}%  ·  Threshold: ${Math.round(comp.threshold * 100)}%`;
@@ -1604,11 +1613,13 @@ async function startScram(mapLimit) {
   }
 
   const scramLimit = mapMode ? (mapLimit || 1) : 10;
+  const KANA_RE = /[぀-ヿ]/;
+  const JP_CHAR_RE = /[一-鿿぀-ヿ]/;
   scramQueue = pool.slice(0, scramLimit).map(w => {
-    // Use word-level segments from jieba if available (>1 tile), else fall back to chars
+    // Use server-supplied segments if available (>1 tile), else fall back to chars
     const segments = (w.example_segments && w.example_segments.length > 1)
       ? w.example_segments
-      : [...w.example_hanzi].filter(c => CJK_RE.test(c));
+      : [...w.example_hanzi].filter(c => LANG === 'japanese' ? JP_CHAR_RE.test(c) : CJK_RE.test(c));
     let tiles = [...segments];
     do { tiles.sort(() => Math.random() - .5); }
     while (tiles.length > 1 && tiles.join('') === segments.join(''));
