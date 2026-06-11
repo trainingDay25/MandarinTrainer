@@ -109,14 +109,16 @@
       {# Push account + hamburger to the right on mobile (nav is hidden) #}
       <div class="d-md-none flex-grow-1"></div>
 
-      {# Language switcher #}
+      {# Language switcher — if mid-session, end it first then land on study home #}
       {% set _lang = current_language or 'chinese' %}
       {% set _here = request.full_path.rstrip('?') %}
+      {% set _lang_next_cn = '/end?next=' + url_for('set_language', lang='chinese')  if in_session else url_for('set_language', lang='chinese',  next=_here) %}
+      {% set _lang_next_jp = '/end?next=' + url_for('set_language', lang='japanese') if in_session else url_for('set_language', lang='japanese', next=_here) %}
       <div class="flex-shrink-0 d-flex gap-1">
-        <a href="{{ url_for('set_language', lang='chinese', next=_here) }}"
+        <a href="{{ _lang_next_cn }}"
            class="lang-flag {% if _lang == 'chinese' %}lang-flag-active{% endif %}"
            title="Chinese"><img src="https://flagcdn.com/24x18/cn.png" alt="CN" width="24" height="18"></a>
-        <a href="{{ url_for('set_language', lang='japanese', next=_here) }}"
+        <a href="{{ _lang_next_jp }}"
            class="lang-flag {% if _lang == 'japanese' %}lang-flag-active{% endif %}"
            title="Japanese"><img src="https://flagcdn.com/24x18/jp.png" alt="JP" width="24" height="18"></a>
       </div>
