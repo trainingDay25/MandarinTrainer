@@ -717,7 +717,7 @@ a.gp-see-also-link:hover { background: #c7d2fe; color: #1e1b4b; }
 @media (max-width: 767px) {
 
   /* ── Shrink header ── */
-  .app-subheader > .container { min-height: 56px; padding-top: 8px; padding-bottom: 8px; }
+  .app-subheader > .container { min-height: 56px; padding-top: 8px; padding-bottom: 8px; gap: 8px !important; }
   .subheader-logo              { height: 36px; width: 36px; }
   .subheader-title             { font-size: 1rem; }
   .subheader-sub               { display: none; }
