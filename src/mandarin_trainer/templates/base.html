@@ -123,11 +123,11 @@
            title="Japanese"><img src="https://flagcdn.com/24x18/jp.png" alt="JP" width="24" height="18"></a>
       </div>
 
-      {# Account indicator — always visible, shows active user name #}
+      {# Account indicator — icon always visible, name desktop only #}
       <a href="/users" class="flex-shrink-0 text-decoration-none
                               subnav-link {% if request.path == '/users' %}active{% endif %}"
          title="Switch account">
-        👤 {{ current_user or 'Accounts' }}
+        👤 <span class="d-none d-md-inline">{{ current_user or 'Accounts' }}</span>
       </a>
 
       {# Hamburger — mobile only #}
