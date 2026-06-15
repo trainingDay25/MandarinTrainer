@@ -54,7 +54,7 @@
 
         {# Reference: Words, Dictionary, Grammar #}
         <div class="dropdown">
-          <button class="subnav-link subnav-drop {% if _p.startswith('/words') or _p.startswith('/custom') or _p.startswith('/anki') or _p.startswith('/dictionary') or _p.startswith('/grammar') %}active{% endif %}"
+          <button class="subnav-link subnav-drop {% if _p.startswith('/words') or _p.startswith('/custom') or _p.startswith('/anki') or _p.startswith('/dictionary') or (_p.startswith('/grammar') and (current_language or 'chinese') != 'japanese') %}active{% endif %}"
                   data-bs-toggle="dropdown" type="button">
             Reference
           </button>
@@ -65,8 +65,10 @@
                    href="{{ '/end?next=/custom' if in_session else '/custom' }}">Custom Lists</a></li>
             <li><a class="dropdown-item {% if _p.startswith('/dictionary') %}active{% endif %}"
                    href="{{ '/end?next=/dictionary' if in_session else '/dictionary' }}">Dictionary</a></li>
+            {% if (current_language or 'chinese') != 'japanese' %}
             <li><a class="dropdown-item {% if _p.startswith('/grammar') %}active{% endif %}"
                    href="{{ '/end?next=/grammar' if in_session else '/grammar' }}">Grammar</a></li>
+            {% endif %}
           </ul>
         </div>
 
@@ -164,7 +166,9 @@
       <a href="{{ '/end?next=/words' if in_session else '/words' }}"           class="mobile-nav-link">Words</a>
       <a href="{{ '/end?next=/custom' if in_session else '/custom' }}"         class="mobile-nav-link">Custom Lists</a>
       <a href="{{ '/end?next=/dictionary' if in_session else '/dictionary' }}" class="mobile-nav-link">Dictionary</a>
+      {% if (current_language or 'chinese') != 'japanese' %}
       <a href="{{ '/end?next=/grammar' if in_session else '/grammar' }}"       class="mobile-nav-link">Grammar</a>
+      {% endif %}
 
       <hr class="nav-drawer-divider">
       <div class="mobile-nav-section">Explore</div>

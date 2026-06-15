@@ -665,12 +665,15 @@ function updateHskOptions() {
 updateHskOptions();
 
 // ── Fetch words from API (or shared map pool) ────────────────────────────────
-async function fetchWords(count) {
+function logGamePlayed(game) {
   fetch('/api/game/log', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({game: currentTab}),
+    body: JSON.stringify({game}),
   }).catch(() => {});
+}
+
+async function fetchWords(count) {
   if (mapMode && mapPool.length > 0) {
     // Return a shuffled slice from the shared pool — every game sees same vocab
     const shuffled = [...mapPool].sort(() => Math.random() - .5);
@@ -943,6 +946,7 @@ function bingoPick(btn, word) {
 function bingoComplete() {
   document.getElementById('bingo-replay').disabled = true;
   document.getElementById('bingo-status').textContent = '';
+  logGamePlayed(currentTab);
   if (mapMode) { mapStepDone(bingoFirstTry, bingoMatched); return; }
   document.getElementById('bingo-done').classList.remove('d-none');
   document.getElementById('bingo-done-msg').textContent =
@@ -1056,6 +1060,7 @@ function toneComplete() {
   document.getElementById('tone-hanzi').textContent   = '';
   document.getElementById('tone-english').textContent = '';
   updateToneProgress();
+  logGamePlayed(currentTab);
   if (mapMode) { mapStepDone(toneCorrect, toneCorrect + toneWrong); return; }
   document.getElementById('tone-done').classList.remove('d-none');
   const total = toneCorrect + toneWrong;
@@ -1222,6 +1227,7 @@ function matchComplete() {
     ? `${Math.floor(elapsed/60)}m ${elapsed%60}s`
     : `${elapsed}s`;
   document.getElementById('match-hint').classList.add('d-none');
+  logGamePlayed(currentTab);
   if (mapMode) { mapStepDone(matchFirstTry, matchMatched); return; }
   document.getElementById('match-done').classList.remove('d-none');
   document.getElementById('match-done-msg').textContent =
@@ -1363,6 +1369,7 @@ function mcComplete() {
   document.getElementById('mc-prompt').textContent   = '';
   document.getElementById('mc-prompt-sub').textContent = '';
   updateMCProgress();
+  logGamePlayed(currentTab);
   if (mapMode) { mapStepDone(mcCorrect, mcCorrect + mcWrong); return; }
   document.getElementById('mc-done').classList.remove('d-none');
   const total = mcCorrect + mcWrong;
@@ -1907,6 +1914,7 @@ function scramComplete() {
   document.getElementById('scram-english').textContent  = '';
   document.getElementById('scram-placed-count').textContent = '';
   updateScramProgress();
+  logGamePlayed(currentTab);
   if (mapMode) { mapStepDone(scramCorrect, scramQueue.length); return; }
   document.getElementById('scram-done').classList.remove('d-none');
   const total = scramCorrect + scramWrong;
@@ -1924,6 +1932,7 @@ function drawComplete() {
   document.getElementById('draw-hint-btn').classList.add('d-none');
   document.getElementById('draw-next-btn').classList.add('d-none');
   updateDrawProgress();
+  logGamePlayed(currentTab);
   document.getElementById('draw-done').classList.remove('d-none');
   const total = drawQueue.length;
   document.getElementById('draw-done-msg').textContent = drawMode === 'quiz'

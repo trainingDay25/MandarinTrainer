@@ -12,6 +12,7 @@ import asyncio
 import threading
 import zipfile
 import shutil
+import contextlib
 import requests as _requests
 
 IS_ANDROID = hasattr(sys, 'getandroidapilevel')
@@ -323,11 +324,19 @@ def _pinyin_collation(a, b):
     sa, sb = strip_tones(a), strip_tones(b)
     return (sa > sb) - (sa < sb)
 
+@contextlib.contextmanager
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.create_collation('PINYIN', _pinyin_collation)
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def _load_jp_dictionary(conn):
     """Load jp_dictionary.json into the dictionary table (runs once, skipped if already loaded)."""
@@ -1648,11 +1657,13 @@ def api_grade():
         if prog is None:
             conn.execute('UPDATE study_sessions SET new_words = new_words + 1 WHERE id = ?', (sid,))
 
-        # Cross-curriculum sync: same hanzi in other curricula gets the same progress
+        # Cross-curriculum sync: same hanzi in other Chinese curricula only (never jlpt)
         mirrors = conn.execute('''
             SELECT w2.id FROM words w1
             JOIN words w2 ON w2.hanzi = w1.hanzi AND w2.id != w1.id
             WHERE w1.id = ?
+              AND w1.curriculum IN ('classic', 'hsk3')
+              AND w2.curriculum IN ('classic', 'hsk3')
         ''', (word_id,)).fetchall()
         for m in mirrors:
             conn.execute('''
@@ -3013,8 +3024,8 @@ def api_custom_list_add():
             except sqlite3.IntegrityError:
                 pass  # already in list
 
-    if added > 0:
-        grant_award(conn, uid, 'custom_list')
+        if added > 0:
+            grant_award(conn, uid, 'custom_list')
     return jsonify({'ok': True, 'list_id': list_id, 'added': added})
 
 
