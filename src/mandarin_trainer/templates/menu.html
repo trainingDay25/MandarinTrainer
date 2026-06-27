@@ -1,0 +1,151 @@
+{% extends 'base.html' %}
+{% block title %}Menu – Mandarin Trainer{% endblock %}
+
+{% block content %}
+
+{% if is_android %}
+
+{# ══════════════════════════════════════════════════
+   ANDROID: compact icon grid — one card, 3 columns
+   ══════════════════════════════════════════════════ #}
+<div class="menu-dashboard-header">
+  <h2 class="menu-dashboard-title">
+    {% if current_user %}Hi, {{ current_user }}!{% else %}Mandarin Trainer{% endif %}
+  </h2>
+  <p class="menu-dashboard-sub">What would you like to do today?</p>
+</div>
+
+<div class="android-menu-card">
+  <div class="android-menu-grid">
+
+    {# Row 1 #}
+    <a href="/select" class="android-menu-item">
+      <i class="bi bi-journal-text"></i>
+      <span>Study</span>
+    </a>
+    <a href="/map" class="android-menu-item">
+      <i class="bi bi-map"></i>
+      <span>Map</span>
+    </a>
+    <a href="/game" class="android-menu-item">
+      <i class="bi bi-controller"></i>
+      <span>Games</span>
+    </a>
+
+    {# Row 2 #}
+    <a href="/words" class="android-menu-item">
+      <i class="bi bi-list-ul"></i>
+      <span>Words</span>
+    </a>
+    <a href="/custom" class="android-menu-item">
+      <i class="bi bi-bookmark-star"></i>
+      <span>Custom Lists</span>
+    </a>
+    <a href="/dictionary" class="android-menu-item">
+      <i class="bi bi-search"></i>
+      <span>Dictionary</span>
+    </a>
+
+    {# Row 3 — Grammar (CN) or Kana (JP) #}
+    {% if lang == 'japanese' %}
+    <a href="/kana" class="android-menu-item">
+      <i class="bi bi-fonts"></i>
+      <span>Kana Chart</span>
+    </a>
+    {% else %}
+    <a href="/grammar" class="android-menu-item">
+      <i class="bi bi-mortarboard"></i>
+      <span>Grammar</span>
+    </a>
+    {% endif %}
+    <a href="/family" class="android-menu-item">
+      <i class="bi bi-diagram-3"></i>
+      <span>Family Tree</span>
+    </a>
+    <a href="/sessions" class="android-menu-item">
+      <i class="bi bi-clock-history"></i>
+      <span>Sessions</span>
+    </a>
+
+    {# Row 4 #}
+    <a href="/stats" class="android-menu-item">
+      <i class="bi bi-bar-chart"></i>
+      <span>Stats</span>
+    </a>
+    <a href="/awards" class="android-menu-item">
+      <i class="bi bi-trophy"></i>
+      <span>Awards</span>
+    </a>
+    {# Empty cell to complete the row #}
+    <div class="android-menu-item android-menu-empty"></div>
+
+  </div>
+</div>
+
+{% else %}
+
+{# ══════════════════════════════════════════════════
+   DESKTOP / MOBILE WEB: 4-card dashboard
+   ══════════════════════════════════════════════════ #}
+
+<div class="menu-dashboard-header">
+  <h2 class="menu-dashboard-title">
+    {% if current_user %}Hi, {{ current_user }}!{% else %}Mandarin Trainer{% endif %}
+  </h2>
+  <p class="menu-dashboard-sub">What would you like to do today?</p>
+</div>
+
+<div class="menu-grid">
+
+  {# ── PRACTICE ── #}
+  <div class="menu-card">
+    <div class="menu-card-title">
+      <i class="bi bi-bullseye"></i>
+      Practice
+    </div>
+    <a href="/select"><i class="bi bi-journal-text"></i> Study</a>
+    <a href="/game"><i class="bi bi-controller"></i> Games</a>
+  </div>
+
+  {# ── REFERENCE ── #}
+  <div class="menu-card">
+    <div class="menu-card-title">
+      <i class="bi bi-book"></i>
+      Reference
+    </div>
+    <a href="/words"><i class="bi bi-list-ul"></i> Words</a>
+    <a href="/custom"><i class="bi bi-bookmark-star"></i> Custom Lists</a>
+    <a href="/dictionary"><i class="bi bi-search"></i> Dictionary</a>
+    {% if lang != 'japanese' %}
+    <a href="/grammar"><i class="bi bi-mortarboard"></i> Grammar</a>
+    {% endif %}
+  </div>
+
+  {# ── EXPLORE ── #}
+  <div class="menu-card">
+    <div class="menu-card-title">
+      <i class="bi bi-compass"></i>
+      Explore
+    </div>
+    <a href="/map"><i class="bi bi-map"></i> Learning Map</a>
+    <a href="/family"><i class="bi bi-diagram-3"></i> Character Family</a>
+    {% if lang == 'japanese' %}
+    <a href="/kana"><i class="bi bi-fonts"></i> Kana Chart</a>
+    {% endif %}
+  </div>
+
+  {# ── PROGRESS ── #}
+  <div class="menu-card">
+    <div class="menu-card-title">
+      <i class="bi bi-graph-up"></i>
+      Progress
+    </div>
+    <a href="/sessions"><i class="bi bi-clock-history"></i> Sessions</a>
+    <a href="/stats"><i class="bi bi-bar-chart"></i> Stats</a>
+    <a href="/awards"><i class="bi bi-trophy"></i> Awards</a>
+  </div>
+
+</div>
+
+{% endif %}
+{% endblock %}

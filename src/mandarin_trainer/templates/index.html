@@ -32,7 +32,7 @@
     {% set labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0', 'jlpt': 'JLPT', 'custom': 'Custom'} %}
     <div class="d-flex gap-2 mb-4 mt-2">
       {% for c in curricula %}
-      <a href="/?curriculum={{ c }}"
+      <a href="/select?curriculum={{ c }}"
          class="btn btn-sm {% if curriculum == c %}btn-dark{% else %}btn-outline-secondary{% endif %}">
         {{ labels.get(c, c) }}
       </a>

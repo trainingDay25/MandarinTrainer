@@ -1288,6 +1288,11 @@ def set_language(lang):
 
 
 @app.route('/')
+def root():
+    return redirect('/menu')
+
+
+@app.route('/select')
 def index():
     uid = get_user_id()
     if not uid:
@@ -1308,6 +1313,9 @@ def index():
             "SELECT COUNT(*) FROM custom_lists WHERE user_id=? AND language=?", (uid, lang)
         ).fetchone()[0] > 0:
             curricula.append('custom')
+
+        if curricula and curriculum not in curricula:
+            curriculum = curricula[0]
 
         if curriculum == 'custom':
             cl_rows = conn.execute('''
@@ -1361,6 +1369,22 @@ def index():
     return render_template('index.html', total=total, new_cnt=new_cnt, due_cnt=due_cnt,
                            hsk_stats=hsk_stats, custom_lists=custom_lists,
                            curriculum=curriculum, curricula=curricula, lang=lang)
+
+
+@app.route('/menu')
+def menu():
+    uid = get_user_id()
+    if not uid:
+        return redirect('/users')
+    curricula = list(get_curricula())
+    lang = get_language()
+    with get_db() as conn:
+        if conn.execute(
+            "SELECT COUNT(*) FROM custom_lists WHERE user_id=? AND language=?", (uid, lang)
+        ).fetchone()[0] > 0:
+            curricula.append('custom')
+    return render_template('menu.html', curricula=curricula, lang=lang,
+                           is_android=IS_ANDROID)
 
 
 @app.route('/start', methods=['POST'])
@@ -1456,6 +1480,7 @@ def start():
             'type':       'custom_list',
             'list_ids':   list_ids,
             'list_names': names,
+            'mode':       mode,
         })
     else:
         selection = json.dumps({
@@ -1463,6 +1488,7 @@ def start():
             'hsk_levels':      hsk_levels,
             'grades':          sorted(grade_filter),
             'include_overdue': include_overdue or default_mode,
+            'mode':            mode,
         })
     with get_db() as conn:
         conn.execute(
@@ -1477,7 +1503,7 @@ def start():
 @app.route('/study')
 def study():
     if 'sid' not in session:
-        return redirect(url_for('index'))
+        return redirect('/menu')
     return render_template('session.html')
 
 
@@ -3316,7 +3342,7 @@ def family():
 @app.route('/kana')
 def kana():
     if get_language() != 'japanese':
-        return redirect('/')
+        return redirect('/menu')
     return render_template('kana.html')
 
 
@@ -3345,7 +3371,7 @@ def users_create():
         session['user_id'] = user['id']
         with get_db() as conn:
             grant_award(conn, user['id'], 'first_user')
-    return redirect('/')
+    return redirect('/menu')
 
 
 @app.route('/users/delete/<int:user_id>', methods=['POST'])
@@ -3384,7 +3410,7 @@ def users_switch(user_id):
             conn.execute('DELETE FROM study_sessions WHERE id = ?', (sid,))
     session.clear()
     session['user_id'] = user_id
-    return redirect('/')
+    return redirect('/menu')
 
 
 @app.route('/users/rename/<int:user_id>', methods=['POST'])

@@ -93,7 +93,7 @@
       <h4>Session complete!</h4>
       <p class="text-muted">All words have been reviewed.</p>
       <div class="d-flex gap-3 justify-content-center flex-wrap">
-        <a href="/" class="btn btn-outline-secondary px-4">Back to home</a>
+        <a href="/menu" class="btn btn-outline-secondary px-4">Back to home</a>
         <button onclick="keepLearning()" class="btn btn-primary px-4">Keep Learning →</button>
       </div>
     </div>
@@ -135,9 +135,10 @@ function keepLearning() {
     (sel.hsk_levels || []).forEach(l => field('hsk', l));
   }
 
-  field('mode', 'mix');
+  field('mode', sel.mode || 'mix');
   field('limit', '9999');
-  ['new','wrong','medium','easy'].forEach(g => field('grades', g));
+  const grades = sel.grades && sel.grades.length > 0 ? sel.grades : ['new','wrong','medium','easy'];
+  grades.forEach(g => field('grades', g));
   field('include_overdue', '1');
 
   document.body.appendChild(form);
