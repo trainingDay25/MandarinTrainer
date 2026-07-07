@@ -31,7 +31,7 @@
             <th class="text-center">Score</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="sessions-tbody">
           {% for e in entries %}
           <tr>
             <td class="text-muted small">{{ e.date }}</td>
@@ -59,8 +59,90 @@
         </tbody>
       </table>
     </div>
+
+    {# Lazy-load sentinel #}
+    <div id="load-sentinel" style="height:4px"></div>
+    <div id="load-spinner" class="text-center py-3 d-none">
+      <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
+      <span class="text-muted small ms-2">Loading more…</span>
+    </div>
+    <div id="load-end" class="text-center py-2 text-muted small d-none">
+      All sessions loaded.
+    </div>
+
     {% endif %}
 
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentOffset = {{ entries|length }};
+let isLoading     = false;
+let hasMore       = {{ 'true' if has_more else 'false' }};
+
+const TBODY   = document.getElementById('sessions-tbody');
+const SPINNER = document.getElementById('load-spinner');
+const END_MSG = document.getElementById('load-end');
+
+function escHtml(s) {
+  return (s ?? '–').toString()
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function scoreBadgeClass(val) {
+  const pct = Math.round((val || 0) * 100);
+  if (pct >= 80) return 'bg-success';
+  if (pct >= 50) return 'bg-warning text-dark';
+  return 'bg-danger';
+}
+
+function buildRow(e) {
+  return `<tr>
+    <td class="text-muted small">${escHtml(e.date)}</td>
+    <td class="small">${escHtml(e.start)}</td>
+    <td class="small">${escHtml(e.end)}</td>
+    <td class="small text-muted">${escHtml(e.duration)}</td>
+    <td class="text-center">${e.stack}</td>
+    <td class="text-center fw-semibold">${e.seen}</td>
+    <td class="text-center text-info">${e.new}</td>
+    <td class="text-center text-success">${e.easy}</td>
+    <td class="text-center text-warning">${e.medium}</td>
+    <td class="text-center text-danger">${e.wrong}</td>
+    <td class="small text-muted" style="max-width:220px">${escHtml(e.selection)}</td>
+    <td class="text-center">
+      <span class="badge fs-6 px-3 ${scoreBadgeClass(e.score_val)}">${escHtml(e.score)}</span>
+    </td>
+  </tr>`;
+}
+
+async function loadMore() {
+  if (isLoading || !hasMore) return;
+  isLoading = true;
+  SPINNER && SPINNER.classList.remove('d-none');
+  try {
+    const res  = await fetch('/api/sessions?offset=' + currentOffset);
+    const data = await res.json();
+    data.entries.forEach(e => TBODY.insertAdjacentHTML('beforeend', buildRow(e)));
+    currentOffset += data.entries.length;
+    hasMore = data.has_more;
+    if (!hasMore) {
+      END_MSG && END_MSG.classList.remove('d-none');
+      observer.disconnect();
+    }
+  } finally {
+    isLoading = false;
+    SPINNER && SPINNER.classList.add('d-none');
+  }
+}
+
+const sentinel = document.getElementById('load-sentinel');
+const observer = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting) loadMore();
+}, { rootMargin: '200px' });
+
+if (sentinel && hasMore)  observer.observe(sentinel);
+if (sentinel && !hasMore) END_MSG && END_MSG.classList.remove('d-none');
+</script>
 {% endblock %}

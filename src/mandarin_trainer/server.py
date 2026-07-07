@@ -2261,18 +2261,14 @@ def stats():
         ''', (uid,)).fetchone()
         total_reviews = totals['easy'] + totals['medium'] + totals['wrong']
 
-        session_dates = conn.execute(f'''
+        session_dates = conn.execute('''
             SELECT DISTINCT DATE(d) AS d FROM (
-                SELECT p.last_seen AS d
-                FROM progress p JOIN words w ON w.id = p.word_id
-                WHERE p.user_id = ? AND w.curriculum IN ({cur_ph})
-                AND p.last_seen IS NOT NULL
+                SELECT started_at AS d FROM session_logs WHERE user_id = ?
                 UNION
                 SELECT passed_at AS d FROM map_progress
                 WHERE user_id = ? AND passed = 1 AND passed_at IS NOT NULL
-                AND curriculum IN ({cur_ph})
             ) ORDER BY d DESC
-        ''', (uid, *curricula, uid, *curricula)).fetchall()
+        ''', (uid, uid)).fetchall()
         streak = 0
         if session_dates:
             most_recent = date_cls.fromisoformat(session_dates[0]['d'])
@@ -2637,64 +2633,85 @@ def awards():
     )
 
 
+_SESSION_CURRICULUM_LABELS = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'}
+_SESSIONS_PAGE_SIZE = 30
+
+
+def _build_session_entry(log):
+    sel = json.loads(log['selection'] or '{}')
+    if sel.get('type') == 'custom_list':
+        names = sel.get('list_names') or ([sel['list_name']] if sel.get('list_name') else [])
+        parts = ['Custom: ' + (', '.join(names) if names else 'All lists')]
+    else:
+        parts = [_SESSION_CURRICULUM_LABELS.get(sel.get('curriculum', 'classic'), sel.get('curriculum', ''))]
+        levels = sel.get('hsk_levels', [])
+        parts.append('HSK ' + ', '.join(str(l) for l in sorted(levels)) if levels else 'All HSK')
+        grades = sel.get('grades', [])
+        parts.append(', '.join(g.capitalize() for g in grades) if grades else 'All grades')
+        if sel.get('include_overdue'):
+            parts.append('Overdue ✓')
+
+    started = log['started_at'] or ''
+    ended   = log['ended_at']   or ''
+    duration = '–'
+    if started and ended:
+        try:
+            secs = int((datetime.fromisoformat(ended) - datetime.fromisoformat(started)).total_seconds())
+            duration = f"{secs // 60}m {secs % 60}s" if secs >= 60 else f"{secs}s"
+        except Exception:
+            pass
+
+    score_val = log['score'] or 0
+    return {
+        'date':      started[:10]   if started else '–',
+        'start':     started[11:16] if started else '–',
+        'end':       ended[11:16]   if ended   else '–',
+        'duration':  duration,
+        'stack':     int(log['stack_size']   or 0),
+        'seen':      int(log['total_seen']   or 0),
+        'new':       int(log['new_words']    or 0),
+        'easy':      int(log['easy_count']   or 0),
+        'medium':    int(log['medium_count'] or 0),
+        'wrong':     int(log['wrong_count']  or 0),
+        'selection': ' · '.join(parts),
+        'score':     f"{int(score_val * 100)}%" if score_val else '0%',
+        'score_val': score_val,
+    }
+
+
 @app.route('/sessions')
 def sessions():
     uid = get_user_id()
     if not uid:
         return redirect('/users')
-    curriculum_labels = {'classic': 'Classic HSK', 'hsk3': 'New HSK 3.0'}
+    limit = _SESSIONS_PAGE_SIZE
     with get_db() as conn:
         logs = conn.execute(
-            'SELECT * FROM session_logs WHERE total_seen > 0 AND user_id = ? ORDER BY started_at DESC', (uid,)
+            'SELECT * FROM session_logs WHERE total_seen > 0 AND user_id = ?'
+            ' ORDER BY started_at DESC LIMIT ?',
+            (uid, limit + 1)
         ).fetchall()
+    has_more = len(logs) > limit
+    entries  = [_build_session_entry(log) for log in logs[:limit]]
+    return render_template('sessions.html', entries=entries, has_more=has_more)
 
-    entries = []
-    for log in logs:
-        sel = json.loads(log['selection'] or '{}')
 
-        if sel.get('type') == 'custom_list':
-            names = sel.get('list_names') or ([sel['list_name']] if sel.get('list_name') else [])
-            parts = ['Custom: ' + (', '.join(names) if names else 'All lists')]
-        else:
-            parts = []
-            parts.append(curriculum_labels.get(sel.get('curriculum', 'classic'), sel.get('curriculum', '')))
-            levels = sel.get('hsk_levels', [])
-            parts.append('HSK ' + ', '.join(str(l) for l in sorted(levels)) if levels else 'All HSK')
-            grades = sel.get('grades', [])
-            parts.append(', '.join(g.capitalize() for g in grades) if grades else 'All grades')
-            if sel.get('include_overdue'):
-                parts.append('Overdue ✓')
-
-        started = log['started_at'] or ''
-        ended   = log['ended_at']   or ''
-        duration = '–'
-        if started and ended:
-            try:
-                secs = int((datetime.fromisoformat(ended) - datetime.fromisoformat(started)).total_seconds())
-                duration = f"{secs // 60}m {secs % 60}s" if secs >= 60 else f"{secs}s"
-            except Exception:
-                pass
-
-        score_pct = f"{int(log['score'] * 100)}%" if log['score'] else '0%'
-        score_val = log['score'] or 0
-
-        entries.append({
-            'date':      started[:10]  if started else '–',
-            'start':     started[11:16] if started else '–',
-            'end':       ended[11:16]   if ended   else '–',
-            'duration':  duration,
-            'stack':     int(log['stack_size']   or 0),
-            'seen':      int(log['total_seen']   or 0),
-            'new':       int(log['new_words']    or 0),
-            'easy':      int(log['easy_count']   or 0),
-            'medium':    int(log['medium_count'] or 0),
-            'wrong':     int(log['wrong_count']  or 0),
-            'selection': ' · '.join(parts),
-            'score':     score_pct,
-            'score_val': score_val,
-        })
-
-    return render_template('sessions.html', entries=entries)
+@app.route('/api/sessions')
+def api_sessions():
+    uid = get_user_id()
+    if not uid:
+        return jsonify({'error': 'no user'}), 400
+    offset = max(0, int(request.args.get('offset', 0) or 0))
+    limit  = _SESSIONS_PAGE_SIZE
+    with get_db() as conn:
+        logs = conn.execute(
+            'SELECT * FROM session_logs WHERE total_seen > 0 AND user_id = ?'
+            ' ORDER BY started_at DESC LIMIT ? OFFSET ?',
+            (uid, limit + 1, offset)
+        ).fetchall()
+    has_more = len(logs) > limit
+    entries  = [_build_session_entry(log) for log in logs[:limit]]
+    return jsonify({'entries': entries, 'has_more': has_more})
 
 
 @app.route('/audio/<path:filename>')
@@ -3478,7 +3495,7 @@ def _collect_sync_payload(uid, conn):
         ''', word_ids).fetchall()]
 
     map_progress = [dict(r) for r in conn.execute('''
-        SELECT curriculum, level, circle_num, best_score, passed, attempts, last_at
+        SELECT curriculum, level, circle_num, best_score, passed, attempts, last_at, passed_at
         FROM map_progress WHERE user_id=?
     ''', (uid,)).fetchall()]
 
@@ -3702,12 +3719,14 @@ def sync_import():
         # Replace map progress
         conn.execute('DELETE FROM map_progress WHERE user_id=?', (uid,))
         for m in data.get('map_progress', []):
+            passed    = m.get('passed', 0)
+            passed_at = m.get('passed_at') or (m.get('last_at') if passed else None)
             conn.execute('''
                 INSERT INTO map_progress
-                    (user_id, curriculum, level, circle_num, best_score, passed, attempts, last_at)
-                VALUES (?,?,?,?,?,?,?,?)
+                    (user_id, curriculum, level, circle_num, best_score, passed, attempts, last_at, passed_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
             ''', (uid, m['curriculum'], m['level'], m['circle_num'],
-                  m.get('best_score', 0), m.get('passed', 0), m.get('attempts', 0), m.get('last_at')))
+                  m.get('best_score', 0), passed, m.get('attempts', 0), m.get('last_at'), passed_at))
 
         # Replace grammar favorites
         conn.execute('DELETE FROM grammar_favorites WHERE user_id=?', (uid,))
